@@ -9,6 +9,11 @@ updates:
     groups:
       cargo:
         patterns: ['*']
+    ignore:
+      # Pinned to 0.8 to match rustls-acme's AxumAcceptor; a 0.9 bump creates two
+      # axum-server versions and breaks TLS/ACME. Unpin once rustls-acme updates.
+      - dependency-name: 'axum-server'
+        versions: ['>=0.9']
 
   # SvelteKit UI
   - package-ecosystem: npm
