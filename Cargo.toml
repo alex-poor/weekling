@@ -1,0 +1,33 @@
+[package]
+name = "weekling"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "A small, fast, self-hosted calendar server (CalDAV) with a beautiful admin UI."
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/robot5x/weekling"
+readme = "README.md"
+keywords = ["caldav", "calendar", "self-hosted", "webdav"]
+categories = ["web-programming", "command-line-utilities"]
+publish = false
+
+[dependencies]
+anyhow = "1.0.104"
+axum = "0.8.9"
+mime_guess = "2.0.5"
+rusqlite = { version = "0.41.1", features = ["bundled"] }
+rust-embed = "8.13.0"
+serde = { version = "1.0.229", features = ["derive"] }
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "net", "signal"] }
+toml = "1.2.1"
+tower-http = { version = "0.7.1", features = ["trace", "limit", "set-header"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+
+# Lean, fast, small. Measured in CI; see DESIGN.md §2.
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

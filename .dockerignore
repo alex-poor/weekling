@@ -1,0 +1,11 @@
+target
+data
+*.db
+*.db-wal
+*.db-shm
+.git
+.github
+weekling.toml
+web/node_modules
+web/.svelte-kit
+web/build

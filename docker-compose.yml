@@ -1,0 +1,16 @@
+services:
+  weekling:
+    image: weekling:local
+    build: .
+    container_name: weekling
+    ports:
+      - "5232:5232"
+    environment:
+      WEEKLING_SERVER_NAME: "My Weekling"
+      # WEEKLING_BIND defaults to 0.0.0.0:5232 inside the container.
+    volumes:
+      - weekling-data:/var/lib/weekling
+    restart: unless-stopped
+
+volumes:
+  weekling-data:

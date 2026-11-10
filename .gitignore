@@ -1,0 +1,20 @@
+# Rust
+/target
+
+# Runtime data (SQLite db, WAL, certs)
+/data
+*.db
+*.db-wal
+*.db-shm
+
+# Local config
+/weekling.toml
+
+# UI toolchain (lands at M2)
+/web/node_modules
+/web/.svelte-kit
+/web/build
+
+# Editor / OS
+.DS_Store
+*.swp
