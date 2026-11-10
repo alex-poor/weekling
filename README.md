@@ -30,6 +30,10 @@ belongs in this decade, and is **secure by default**.
 It's built for **homes, families, and small teams** — not a groupware behemoth. One binary, one
 SQLite file, no runtime to install.
 
+<p align="center">
+  <img src="docs/screenshot-calendars.png" width="820" alt="Weekling admin UI — the Calendars screen" />
+</p>
+
 ## ✨ What's inside
 
 - 📅 **Core CalDAV** — service discovery, `PROPFIND`/`REPORT`, ETag-safe writes, and efficient
