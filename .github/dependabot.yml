@@ -14,6 +14,10 @@ updates:
       # axum-server versions and breaks TLS/ACME. Unpin once rustls-acme updates.
       - dependency-name: 'axum-server'
         versions: ['>=0.9']
+      # quick-xml 0.42 is a breaking API change (QName::as_ref → &str); it needs a
+      # small code migration in the DAV XML parser. Unpin when that's done.
+      - dependency-name: 'quick-xml'
+        versions: ['>=0.42']
 
   # SvelteKit UI
   - package-ecosystem: npm
