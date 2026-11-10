@@ -17,6 +17,9 @@ USAGE:
     weekling calendar add <user> <title> [--id ID] [--color #HEX]
                                              [--components VEVENT|VTODO|VEVENT,VTODO]
     weekling calendar ls <user>
+    weekling share add <owner> <cal> <grantee> [--access read|read-write|freebusy]
+    weekling share ls <owner> <cal>
+    weekling share rm <owner> <cal> <grantee>
     weekling help
 ";
 
@@ -36,6 +39,7 @@ pub fn dispatch(store: &Store, args: &[String]) -> Result<bool> {
         "user" => user_cmd(store, &args[1..])?,
         "token" => token_cmd(store, &args[1..])?,
         "calendar" | "cal" => calendar_cmd(store, &args[1..])?,
+        "share" => share_cmd(store, &args[1..])?,
         other => bail!("unknown command '{other}'\n\n{USAGE}"),
     }
     Ok(true)
@@ -124,6 +128,53 @@ fn calendar_cmd(store: &Store, args: &[String]) -> Result<()> {
             Ok(())
         }
         _ => bail!("usage: weekling calendar add|ls …"),
+    }
+}
+
+fn share_cmd(store: &Store, args: &[String]) -> Result<()> {
+    match args.first().map(String::as_str) {
+        Some("add") => {
+            let rest = &args[1..];
+            let owner =
+                positional(rest, 0).ok_or_else(|| err("share add <owner> <cal> <grantee>"))?;
+            let cal =
+                positional(rest, 1).ok_or_else(|| err("share add <owner> <cal> <grantee>"))?;
+            let grantee =
+                positional(rest, 2).ok_or_else(|| err("share add <owner> <cal> <grantee>"))?;
+            let access = flag(rest, "--access").unwrap_or_else(|| "read".into());
+            if !matches!(access.as_str(), "read" | "read-write" | "freebusy") {
+                bail!("invalid --access '{access}' (read | read-write | freebusy)");
+            }
+            if store.share_calendar(&owner, &cal, &grantee, &access)? {
+                println!("shared {owner}/{cal} with '{grantee}' ({access})");
+            } else {
+                bail!("could not share — check that '{owner}' owns '{cal}' and '{grantee}' exists");
+            }
+            Ok(())
+        }
+        Some("ls") => {
+            let owner = positional(&args[1..], 0).ok_or_else(|| err("share ls <owner> <cal>"))?;
+            let cal = positional(&args[1..], 1).ok_or_else(|| err("share ls <owner> <cal>"))?;
+            for (grantee, access) in store.list_shares(&owner, &cal)? {
+                println!("{grantee:<20} {access}");
+            }
+            Ok(())
+        }
+        Some("rm") => {
+            let rest = &args[1..];
+            let owner =
+                positional(rest, 0).ok_or_else(|| err("share rm <owner> <cal> <grantee>"))?;
+            let cal = positional(rest, 1).ok_or_else(|| err("share rm <owner> <cal> <grantee>"))?;
+            let grantee =
+                positional(rest, 2).ok_or_else(|| err("share rm <owner> <cal> <grantee>"))?;
+            if store.unshare(&owner, &cal, &grantee)? {
+                println!("unshared {owner}/{cal} from '{grantee}'");
+            } else {
+                bail!("no such share");
+            }
+            Ok(())
+        }
+        _ => bail!("usage: weekling share add|ls|rm …"),
     }
 }
 

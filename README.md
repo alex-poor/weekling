@@ -16,7 +16,10 @@ weekling user add alice --display "Alice"
 echo "a-strong-passphrase" | weekling user passwd alice   # account password (UI login)
 weekling token add alice              # prints an app password — copy it once
 weekling calendar add alice "Home" --id home --color "#5b8defff"
+weekling calendar add alice "Tasks" --id tasks --components VTODO   # a task list
 weekling calendar ls alice
+weekling share add alice home bob --access read-write              # share with another user
+weekling share ls alice home
 ```
 
 The account password logs in to the management API at `/api` (cookie session +

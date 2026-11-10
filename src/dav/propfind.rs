@@ -11,12 +11,13 @@ use super::{
     sync_token,
 };
 use crate::http::AppState;
-use crate::store::{CalObject, Calendar, Principal};
+use crate::store::{Access, CalObject, Calendar, Principal};
 
 const SUPPORTED_REPORTS: &str = "<d:supported-report-set>\
 <d:supported-report><d:report><d:sync-collection/></d:report></d:supported-report>\
 <d:supported-report><d:report><cal:calendar-query/></d:report></d:supported-report>\
 <d:supported-report><d:report><cal:calendar-multiget/></d:report></d:supported-report>\
+<d:supported-report><d:report><cal:free-busy-query/></d:report></d:supported-report>\
 </d:supported-report-set>";
 
 pub fn handle(
@@ -25,6 +26,7 @@ pub fn handle(
     resource: &Resource,
     headers: &HeaderMap,
     body: &Bytes,
+    access: Access,
 ) -> Response {
     let req = super::xml::parse_prop_request(body);
     let d = depth(headers);
@@ -43,6 +45,16 @@ pub fn handle(
                     }
                     Err(e) => return super::server_error(e),
                 }
+                // Calendars shared *to* this user also appear in their home.
+                match state.store.shared_with(user) {
+                    Ok(shared) => {
+                        for (c, _acc) in shared {
+                            let owner = c.owner_id.clone();
+                            out.push_str(&calendar_response(principal, &owner, &c, &req));
+                        }
+                    }
+                    Err(e) => return super::server_error(e),
+                }
             }
             out
         }
@@ -53,8 +65,9 @@ pub fn handle(
                 Err(e) => return super::server_error(e),
             };
             let mut out = calendar_response(principal, user, &calendar, &req);
-            if d >= 1 {
-                match state.store.list_objects(cal) {
+            // Free-busy grantees see the calendar, but not its objects.
+            if d >= 1 && access.can_read() {
+                match state.store.list_objects(cal, None) {
                     Ok(objs) => {
                         for o in objs {
                             out.push_str(&object_response(user, cal, &o, &req));

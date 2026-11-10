@@ -17,7 +17,7 @@ use axum::{Extension, middleware};
 
 use crate::auth::{AuthedPrincipal, require_auth};
 use crate::http::AppState;
-use crate::store::NewObject;
+use crate::store::{Access, NewObject};
 use crate::{ical, util};
 
 /// The resource addressed by a `/dav/...` path.
@@ -113,22 +113,44 @@ async fn dav_entry(
 ) -> Response {
     let resource = parse_path(uri.path());
 
-    // No sharing yet: a principal may only touch their own tree.
-    if let Some(user) = resource_user(&resource) {
-        if user != principal.id {
-            return (StatusCode::FORBIDDEN, "not your resource\n").into_response();
-        }
+    // MKCALENDAR creates a new (not-yet-existing) calendar: only in your own home.
+    if method.as_str() == "MKCALENDAR" {
+        return match &resource {
+            Resource::Calendar { user, .. } if *user == principal.id => {
+                mkcalendar(&state, &resource, &body)
+            }
+            _ => forbidden(),
+        };
     }
+
+    // Effective access to the addressed resource (sharing-aware).
+    let access = match &resource {
+        Resource::Root => Some(Access::Owner),
+        Resource::Principal { user } | Resource::Home { user } => {
+            (*user == principal.id).then_some(Access::Owner)
+        }
+        Resource::Calendar { user, cal } | Resource::Object { user, cal, .. } => {
+            match state.store.access_for(&principal.id, user, cal) {
+                Ok(a) => a,
+                Err(e) => return server_error(e),
+            }
+        }
+        Resource::Unknown => None,
+    };
+    let Some(access) = access else {
+        // Don't distinguish "forbidden" from "absent" for another user's tree.
+        return not_found();
+    };
 
     match method.as_str() {
         "OPTIONS" => options_response(),
-        "PROPFIND" => propfind::handle(&state, &principal, &resource, &headers, &body),
-        "REPORT" => report::handle(&state, &principal, &resource, &body),
-        "GET" | "HEAD" => get(&state, &resource, method == Method::HEAD),
-        "PUT" => put(&state, &resource, &headers, &body),
-        "DELETE" => delete(&state, &resource, &headers),
-        "MKCALENDAR" => mkcalendar(&state, &resource, &body),
-        "PROPPATCH" => proppatch(&state, &resource, &body),
+        "PROPFIND" => propfind::handle(&state, &principal, &resource, &headers, &body, access),
+        "REPORT" => report::handle(&state, &principal, &resource, &body, access),
+        "GET" | "HEAD" if access.can_read() => get(&state, &resource, method == Method::HEAD),
+        "PUT" if access.can_write() => put(&state, &resource, &headers, &body),
+        "DELETE" if access.can_write() => delete(&state, &resource, &headers),
+        "PROPPATCH" if access.can_write() => proppatch(&state, &resource, &body),
+        "GET" | "HEAD" | "PUT" | "DELETE" | "PROPPATCH" => forbidden(),
         _ => (StatusCode::METHOD_NOT_ALLOWED, "method not allowed\n").into_response(),
     }
 }
@@ -223,6 +245,7 @@ fn put(state: &AppState, resource: &Resource, headers: &HeaderMap, body: &Bytes)
         dtend: fields.dtend.as_deref(),
         summary: fields.summary.as_deref(),
         status: fields.status.as_deref(),
+        component: fields.component.as_deref(),
         has_rrule: fields.has_rrule,
     };
     if let Err(e) = state.store.put_object(&new, &util::new_id()) {
@@ -330,6 +353,10 @@ pub fn multistatus_response(body: &str) -> Response {
 
 fn not_found() -> Response {
     (StatusCode::NOT_FOUND, "not found\n").into_response()
+}
+
+fn forbidden() -> Response {
+    (StatusCode::FORBIDDEN, "forbidden\n").into_response()
 }
 
 fn server_error(e: anyhow::Error) -> Response {

@@ -2,7 +2,7 @@
 //! sync-collection (RFC 6578).
 
 use axum::body::Bytes;
-use axum::http::StatusCode;
+use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use quick_xml::Reader;
 use quick_xml::events::Event;
@@ -13,12 +13,13 @@ use super::{
 };
 use crate::http::AppState;
 use crate::ical;
-use crate::store::Principal;
+use crate::store::{Access, Principal};
 
 #[derive(Default)]
 struct ReportReq {
     kind: String,
     time_range: Option<(String, String)>,
+    component: Option<String>, // VEVENT / VTODO from the innermost comp-filter
     hrefs: Vec<String>,
     sync_token: Option<String>,
 }
@@ -63,6 +64,19 @@ fn parse_report(body: &[u8]) -> ReportReq {
                         r.time_range = Some((s, en));
                     }
                 }
+                if name == "comp-filter" {
+                    for a in e.attributes().flatten() {
+                        if local(a.key.as_ref()) == "name" {
+                            let v = a
+                                .normalized_value(quick_xml::XmlVersion::Implicit1_0)
+                                .map(|v| v.into_owned().to_ascii_uppercase())
+                                .unwrap_or_default();
+                            if v == "VEVENT" || v == "VTODO" {
+                                r.component = Some(v);
+                            }
+                        }
+                    }
+                }
                 cur = name;
             }
             Ok(Event::Text(t)) => {
@@ -89,6 +103,7 @@ pub fn handle(
     _principal: &Principal,
     resource: &Resource,
     body: &Bytes,
+    access: Access,
 ) -> Response {
     let report = parse_report(body);
     let prop_req = parse_prop_request(body);
@@ -98,11 +113,18 @@ pub fn handle(
         _ => return (StatusCode::FORBIDDEN, "report not supported here\n").into_response(),
     };
 
+    // Free-busy grantees may only run free-busy-query.
+    if !access.can_read() && report.kind != "free-busy-query" {
+        return (StatusCode::FORBIDDEN, "only free-busy-query is permitted\n").into_response();
+    }
+
+    let component = report.component.as_deref();
+
     match report.kind.as_str() {
         "calendar-query" => {
             let objs = match &report.time_range {
-                Some((s, e)) => state.store.list_objects_in_range(&cal, s, e),
-                None => state.store.list_objects(&cal),
+                Some((s, e)) => state.store.list_objects_in_range(&cal, s, e, component),
+                None => state.store.list_objects(&cal, component),
             };
             match objs {
                 Ok(objs) => {
@@ -169,6 +191,40 @@ pub fn handle(
                         sync_token(token)
                     );
                     multistatus_response(&body)
+                }
+                Err(e) => super::server_error(e),
+            }
+        }
+        "free-busy-query" => {
+            let Some((start, end)) = report.time_range.clone() else {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    "free-busy-query needs a time-range\n",
+                )
+                    .into_response();
+            };
+            match state
+                .store
+                .list_objects_in_range(&cal, &start, &end, Some("VEVENT"))
+            {
+                Ok(objs) => {
+                    let mut periods = String::new();
+                    for o in objs {
+                        if let (Some(s), Some(e)) = (&o.dtstart, &o.dtend) {
+                            periods.push_str(&format!("FREEBUSY;FBTYPE=BUSY:{}Z/{}Z\r\n", s, e));
+                        }
+                    }
+                    let ics = format!(
+                        "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//weekling//caldav//EN\r\n\
+                         BEGIN:VFREEBUSY\r\nDTSTART:{start}Z\r\nDTEND:{end}Z\r\n{periods}\
+                         END:VFREEBUSY\r\nEND:VCALENDAR\r\n"
+                    );
+                    (
+                        StatusCode::OK,
+                        [(header::CONTENT_TYPE, "text/calendar; charset=utf-8")],
+                        ics,
+                    )
+                        .into_response()
                 }
                 Err(e) => super::server_error(e),
             }

@@ -10,7 +10,10 @@ use std::sync::Mutex;
 use anyhow::{Context, Result};
 use rusqlite::{Connection, OptionalExtension, params};
 
-const MIGRATIONS: &[(i64, &str)] = &[(1, include_str!("migrations/0001_init.sql"))];
+const MIGRATIONS: &[(i64, &str)] = &[
+    (1, include_str!("migrations/0001_init.sql")),
+    (2, include_str!("migrations/0002_sharing.sql")),
+];
 
 // ---- domain types -------------------------------------------------------
 
@@ -36,15 +39,42 @@ pub struct Calendar {
 }
 
 #[derive(Debug, Clone)]
-#[allow(dead_code)] // dtstart/dtend/has_rrule/change_seq feed indexing & sync, not yet read off the struct
+#[allow(dead_code)] // has_rrule/change_seq feed indexing & sync, not yet read off the struct
 pub struct CalObject {
     pub uid: String,
     pub etag: String,
     pub ical_raw: String,
     pub dtstart: Option<String>,
     pub dtend: Option<String>,
+    pub component: Option<String>,
     pub has_rrule: bool,
     pub change_seq: i64,
+}
+
+/// A principal's effective access to a calendar.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Access {
+    Owner,
+    ReadWrite,
+    Read,
+    FreeBusy,
+}
+
+impl Access {
+    pub fn can_read(self) -> bool {
+        matches!(self, Access::Owner | Access::ReadWrite | Access::Read)
+    }
+    pub fn can_write(self) -> bool {
+        matches!(self, Access::Owner | Access::ReadWrite)
+    }
+    fn from_share(s: &str) -> Option<Access> {
+        match s {
+            "read" => Some(Access::Read),
+            "read-write" => Some(Access::ReadWrite),
+            "freebusy" => Some(Access::FreeBusy),
+            _ => None,
+        }
+    }
 }
 
 /// Input for an upsert of a calendar object.
@@ -57,6 +87,7 @@ pub struct NewObject<'a> {
     pub dtend: Option<&'a str>,
     pub summary: Option<&'a str>,
     pub status: Option<&'a str>,
+    pub component: Option<&'a str>,
     pub has_rrule: bool,
 }
 
@@ -401,54 +432,183 @@ impl Store {
         Ok(n > 0)
     }
 
-    // ---- calendar objects ------------------------------------------------
+    // ---- sharing ---------------------------------------------------------
 
-    pub fn get_object(&self, cal_id: &str, uid: &str) -> Result<Option<CalObject>> {
+    /// Share a calendar the owner owns with another principal. Returns false if
+    /// the owner doesn't own it, the grantee doesn't exist, or they're the same.
+    pub fn share_calendar(
+        &self,
+        owner_id: &str,
+        cal_id: &str,
+        grantee_id: &str,
+        access: &str,
+    ) -> Result<bool> {
+        if Access::from_share(access).is_none() || owner_id == grantee_id {
+            return Ok(false);
+        }
         let conn = self.conn.lock().expect("poisoned");
-        let o = conn
+        let owns = conn
             .query_row(
-                "SELECT uid, etag, ical_raw, dtstart, dtend, has_rrule, change_seq
-                 FROM resources WHERE collection_id = ?1 AND uid = ?2",
-                params![cal_id, uid],
-                map_object,
+                "SELECT 1 FROM collections WHERE id = ?1 AND owner_id = ?2",
+                params![cal_id, owner_id],
+                |_| Ok(()),
             )
-            .optional()?;
-        Ok(o)
+            .optional()?
+            .is_some();
+        let grantee_ok = conn
+            .query_row(
+                "SELECT 1 FROM principals WHERE id = ?1",
+                [grantee_id],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some();
+        if !owns || !grantee_ok {
+            return Ok(false);
+        }
+        conn.execute(
+            "INSERT INTO shares (collection_id, grantee_id, access) VALUES (?1, ?2, ?3)
+             ON CONFLICT (collection_id, grantee_id) DO UPDATE SET access = excluded.access",
+            params![cal_id, grantee_id, access],
+        )?;
+        Ok(true)
     }
 
-    pub fn list_objects(&self, cal_id: &str) -> Result<Vec<CalObject>> {
+    pub fn unshare(&self, owner_id: &str, cal_id: &str, grantee_id: &str) -> Result<bool> {
+        let conn = self.conn.lock().expect("poisoned");
+        let n = conn.execute(
+            "DELETE FROM shares WHERE grantee_id = ?1 AND collection_id IN
+                 (SELECT id FROM collections WHERE id = ?2 AND owner_id = ?3)",
+            params![grantee_id, cal_id, owner_id],
+        )?;
+        Ok(n > 0)
+    }
+
+    /// (grantee_id, access) rows for a calendar the owner owns.
+    pub fn list_shares(&self, owner_id: &str, cal_id: &str) -> Result<Vec<(String, String)>> {
         let conn = self.conn.lock().expect("poisoned");
         let mut stmt = conn.prepare(
-            "SELECT uid, etag, ical_raw, dtstart, dtend, has_rrule, change_seq
-             FROM resources WHERE collection_id = ?1 ORDER BY uid",
+            "SELECT grantee_id, access FROM shares WHERE collection_id IN
+                 (SELECT id FROM collections WHERE id = ?1 AND owner_id = ?2)
+             ORDER BY grantee_id",
         )?;
         let rows = stmt
-            .query_map([cal_id], map_object)?
+            .query_map(params![cal_id, owner_id], |r| Ok((r.get(0)?, r.get(1)?)))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         Ok(rows)
     }
 
-    /// Objects overlapping [start, end) (half-open, inclusive-of-undated-end).
-    /// Recurring objects (RRULE) are always included — the client re-filters.
+    /// Calendars shared *to* this principal, each with the granted access.
+    pub fn shared_with(&self, grantee_id: &str) -> Result<Vec<(Calendar, Access)>> {
+        let conn = self.conn.lock().expect("poisoned");
+        let mut stmt = conn.prepare(
+            "SELECT c.id, c.owner_id, c.display_name, c.description, c.color, c.components,
+                    c.sync_token, s.access
+             FROM shares s JOIN collections c ON c.id = s.collection_id
+             WHERE s.grantee_id = ?1 ORDER BY c.display_name",
+        )?;
+        let rows = stmt
+            .query_map([grantee_id], |r| {
+                let cal = Calendar {
+                    id: r.get(0)?,
+                    owner_id: r.get(1)?,
+                    display_name: r.get(2)?,
+                    description: r.get(3)?,
+                    color: r.get(4)?,
+                    components: r.get(5)?,
+                    sync_token: r.get(6)?,
+                };
+                let access = Access::from_share(&r.get::<_, String>(7)?).unwrap_or(Access::Read);
+                Ok((cal, access))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    /// A principal's effective access to `owner_id`'s calendar `cal_id`, or None
+    /// if the calendar doesn't exist or isn't shared with them.
+    pub fn access_for(
+        &self,
+        principal_id: &str,
+        owner_id: &str,
+        cal_id: &str,
+    ) -> Result<Option<Access>> {
+        let conn = self.conn.lock().expect("poisoned");
+        let exists = conn
+            .query_row(
+                "SELECT 1 FROM collections WHERE id = ?1 AND owner_id = ?2",
+                params![cal_id, owner_id],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some();
+        if !exists {
+            return Ok(None);
+        }
+        if principal_id == owner_id {
+            return Ok(Some(Access::Owner));
+        }
+        let acc: Option<String> = conn
+            .query_row(
+                "SELECT access FROM shares WHERE collection_id = ?1 AND grantee_id = ?2",
+                params![cal_id, principal_id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        Ok(acc.and_then(|a| Access::from_share(&a)))
+    }
+
+    // ---- calendar objects ------------------------------------------------
+
+    pub fn get_object(&self, cal_id: &str, uid: &str) -> Result<Option<CalObject>> {
+        let conn = self.conn.lock().expect("poisoned");
+        let sql =
+            format!("SELECT {OBJECT_COLS} FROM resources WHERE collection_id = ?1 AND uid = ?2");
+        let o = conn
+            .query_row(&sql, params![cal_id, uid], map_object)
+            .optional()?;
+        Ok(o)
+    }
+
+    /// List objects, optionally restricted to one component type (VEVENT/VTODO).
+    pub fn list_objects(&self, cal_id: &str, component: Option<&str>) -> Result<Vec<CalObject>> {
+        let conn = self.conn.lock().expect("poisoned");
+        let sql = format!(
+            "SELECT {OBJECT_COLS} FROM resources
+             WHERE collection_id = ?1 AND (?2 IS NULL OR component IS NULL OR component = ?2)
+             ORDER BY uid"
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt
+            .query_map(params![cal_id, component], map_object)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    /// Objects overlapping [start, end) (half-open, inclusive-of-undated-end),
+    /// optionally restricted to one component type. Recurring objects (RRULE)
+    /// are always included — the client re-filters.
     pub fn list_objects_in_range(
         &self,
         cal_id: &str,
         start: &str,
         end: &str,
+        component: Option<&str>,
     ) -> Result<Vec<CalObject>> {
         let conn = self.conn.lock().expect("poisoned");
-        let mut stmt = conn.prepare(
-            "SELECT uid, etag, ical_raw, dtstart, dtend, has_rrule, change_seq
-             FROM resources
+        let sql = format!(
+            "SELECT {OBJECT_COLS} FROM resources
              WHERE collection_id = ?1
+               AND (?4 IS NULL OR component IS NULL OR component = ?4)
                AND (has_rrule = 1
                     OR (dtstart IS NOT NULL
                         AND dtstart < ?3
                         AND COALESCE(dtend, dtstart) >= ?2))
-             ORDER BY uid",
-        )?;
+             ORDER BY uid"
+        );
+        let mut stmt = conn.prepare(&sql)?;
         let rows = stmt
-            .query_map(params![cal_id, start, end], map_object)?
+            .query_map(params![cal_id, start, end, component], map_object)?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         Ok(rows)
     }
@@ -462,12 +622,13 @@ impl Store {
         tx.execute(
             "INSERT INTO resources
                  (id, collection_id, uid, etag, ical_raw, dtstart, dtend, summary,
-                  status, has_rrule, change_seq, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, datetime('now'))
+                  status, component, has_rrule, change_seq, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, datetime('now'))
              ON CONFLICT (collection_id, uid) DO UPDATE SET
                  etag = excluded.etag, ical_raw = excluded.ical_raw,
                  dtstart = excluded.dtstart, dtend = excluded.dtend,
                  summary = excluded.summary, status = excluded.status,
+                 component = excluded.component,
                  has_rrule = excluded.has_rrule, change_seq = excluded.change_seq,
                  updated_at = datetime('now')",
             params![
@@ -480,6 +641,7 @@ impl Store {
                 obj.dtend,
                 obj.summary,
                 obj.status,
+                obj.component,
                 obj.has_rrule as i64,
                 seq,
             ],
@@ -572,6 +734,8 @@ fn map_calendar(r: &rusqlite::Row) -> rusqlite::Result<Calendar> {
     })
 }
 
+const OBJECT_COLS: &str = "uid, etag, ical_raw, dtstart, dtend, component, has_rrule, change_seq";
+
 fn map_object(r: &rusqlite::Row) -> rusqlite::Result<CalObject> {
     Ok(CalObject {
         uid: r.get(0)?,
@@ -579,8 +743,9 @@ fn map_object(r: &rusqlite::Row) -> rusqlite::Result<CalObject> {
         ical_raw: r.get(2)?,
         dtstart: r.get(3)?,
         dtend: r.get(4)?,
-        has_rrule: r.get::<_, i64>(5)? != 0,
-        change_seq: r.get(6)?,
+        component: r.get(5)?,
+        has_rrule: r.get::<_, i64>(6)? != 0,
+        change_seq: r.get(7)?,
     })
 }
 
@@ -615,6 +780,7 @@ mod tests {
             dtend: Some("20260115T100000"),
             summary: Some("Sync"),
             status: Some("CONFIRMED"),
+            component: Some("VEVENT"),
             has_rrule: false,
         };
         let seq1 = s.put_object(&obj, "row1").unwrap();
@@ -648,6 +814,7 @@ mod tests {
             dtend: Some(end),
             summary: None,
             status: None,
+            component: Some("VEVENT"),
             has_rrule: false,
         };
         s.put_object(&mk("jan", "20260115T090000", "20260115T100000"), "r1")
@@ -656,9 +823,41 @@ mod tests {
             .unwrap();
 
         let hits = s
-            .list_objects_in_range("c", "20260101T000000", "20260201T000000")
+            .list_objects_in_range("c", "20260101T000000", "20260201T000000", None)
             .unwrap();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].uid, "jan");
+    }
+
+    #[test]
+    fn sharing_grants_access() {
+        let s = mem_store();
+        s.create_user("alice", "Alice", false).unwrap();
+        s.create_user("bob", "Bob", false).unwrap();
+        s.create_calendar("home", "alice", "Home", "VEVENT", None, None)
+            .unwrap();
+
+        // No access before sharing.
+        assert_eq!(s.access_for("bob", "alice", "home").unwrap(), None);
+        assert_eq!(
+            s.access_for("alice", "alice", "home").unwrap(),
+            Some(Access::Owner)
+        );
+
+        assert!(
+            s.share_calendar("alice", "home", "bob", "read-write")
+                .unwrap()
+        );
+        assert_eq!(
+            s.access_for("bob", "alice", "home").unwrap(),
+            Some(Access::ReadWrite)
+        );
+        assert_eq!(s.shared_with("bob").unwrap().len(), 1);
+
+        // Bob cannot share Alice's calendar onward.
+        assert!(!s.share_calendar("bob", "home", "alice", "read").unwrap());
+
+        assert!(s.unshare("alice", "home", "bob").unwrap());
+        assert_eq!(s.access_for("bob", "alice", "home").unwrap(), None);
     }
 }
