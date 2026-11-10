@@ -6,6 +6,5 @@ data
 .git
 .github
 weekling.toml
-web/node_modules
-web/.svelte-kit
-web/build
+# UI source/toolchain: the image only needs the committed build output in web/.
+ui

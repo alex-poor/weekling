@@ -1,0 +1,29 @@
+<script>
+	let { name, size = 18 } = $props();
+	const paths = {
+		grid: 'M4 4h6v6H4zM14 4h6v6h-6zM14 14h6v6h-6zM4 14h6v6H4z',
+		calendar: 'M8 2v3M16 2v3M4 8.5h16M5 5h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z',
+		key: 'M10.5 13.5 3 21M7 17l2 2M21 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0z',
+		phone: 'M8 3h8a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zM11 18h2',
+		logout: 'M15 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h7a2 2 0 0 0 2-2v-3M10 12h11m0 0-3-3m3 3-3 3',
+		plus: 'M12 5v14M5 12h14',
+		copy: 'M10 9h9v11h-9zM6 15H5V4h10v1',
+		trash: 'M4 7h16M10 7V4h4v3M6 7l1 13h10l1-13',
+		check: 'M4 12l5 5L20 6',
+		link: 'M9 15l6-6M10 6l1-1a4 4 0 0 1 6 6l-1 1M14 18l-1 1a4 4 0 0 1-6-6l1-1'
+	};
+</script>
+
+<svg
+	width={size}
+	height={size}
+	viewBox="0 0 24 24"
+	fill="none"
+	stroke="currentColor"
+	stroke-width="1.8"
+	stroke-linecap="round"
+	stroke-linejoin="round"
+	aria-hidden="true"
+>
+	<path d={paths[name] ?? ''} />
+</svg>

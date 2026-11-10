@@ -1,91 +1,41 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Weekling</title>
-  <link rel="icon" href="/logo.png" />
-  <style>
-    :root {
-      color-scheme: light dark;
-      --bg: #fbfbfd; --fg: #17181c; --muted: #6b7280;
-      --card: #ffffff; --line: #e7e8ee; --accent: #5b8def; --ok: #2fa968;
-      --radius: 14px; --shadow: 0 1px 2px rgba(16,18,27,.06), 0 8px 24px rgba(16,18,27,.06);
-    }
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --bg: #0e0f13; --fg: #e9eaef; --muted: #9aa0ab;
-        --card: #16181f; --line: #262932; --accent: #7aa2f7; --ok: #4ad295;
-        --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.35);
-      }
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0; min-height: 100vh; background: var(--bg); color: var(--fg);
-      font: 15px/1.5 system-ui, -apple-system, Segoe UI, Roboto, Inter, sans-serif;
-      display: grid; place-items: center; padding: 24px;
-    }
-    .card {
-      width: 100%; max-width: 560px; background: var(--card);
-      border: 1px solid var(--line); border-radius: var(--radius);
-      box-shadow: var(--shadow); padding: 32px;
-    }
-    .brand { display: flex; align-items: center; gap: 14px; margin-bottom: 8px; }
-    .logo {
-      height: 72px; width: auto; flex: none;
-      border-radius: 12px; background: #fff; padding: 4px;
-      border: 1px solid var(--line);
-    }
-    h1 { font-size: 22px; margin: 0; letter-spacing: -.01em; }
-    .sub { color: var(--muted); margin: 2px 0 20px; }
-    .status {
-      display: flex; align-items: center; gap: 10px; padding: 12px 14px;
-      border: 1px solid var(--line); border-radius: 10px; margin-bottom: 18px;
-      font-variant-numeric: tabular-nums;
-    }
-    .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex: none; }
-    .dot.ok { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 20%, transparent); }
-    .meta { color: var(--muted); font-size: 13px; }
-    code { background: color-mix(in srgb, var(--fg) 7%, transparent); padding: 1px 6px; border-radius: 6px; }
-    ul { margin: 14px 0 0; padding-left: 18px; color: var(--muted); }
-    a { color: var(--accent); }
-  </style>
-</head>
-<body>
-  <main class="card">
-    <div class="brand">
-      <img class="logo" src="/logo.png" alt="Weekling mascot" />
-      <div>
-        <h1>Weekling</h1>
-        <div class="meta" id="server-name">self-hosted calendar</div>
-      </div>
-    </div>
-    <p class="sub">The management UI isn't built yet — this is the M0 skeleton.</p>
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta name="text-scale" content="scale" />
+		<title>Weekling</title>
+		<link rel="icon" href="/logo.png" />
+		<link href="/_app/immutable/entry/start.BqUyRpmX.js" rel="modulepreload">
+		<link href="/_app/immutable/entry/payload.DSmR2FwN.js" rel="modulepreload">
+		<link href="/_app/immutable/chunks/DclECHGd.js" rel="modulepreload">
+		<link href="/_app/immutable/chunks/H8EubxMe.js" rel="modulepreload">
+		<link href="/_app/immutable/chunks/D2rI4hS_.js" rel="modulepreload">
+		<link href="/_app/immutable/chunks/DVAeFSaf.js" rel="modulepreload">
+		<link href="/_app/immutable/chunks/B6KLZDCQ.js" rel="modulepreload">
+		<link href="/_app/immutable/entry/app.CdVCZ3KH.js" rel="modulepreload">
+		<link href="/_app/immutable/nodes/0.C_2Yjgkk.js" rel="modulepreload">
+		
+		<link href="/_app/immutable/assets/0.BnJUtNPv.css" rel="stylesheet">
+	</head>
+	<body data-sveltekit-preload-data="hover">
+		<div style="display: contents">
+			<script>
+				{
+					__sveltekit_1pems2b = {
+						base: "",
+						version: "1794289610876"
+					};
 
-    <div class="status">
-      <span class="dot" id="dot"></span>
-      <strong id="status-text">checking…</strong>
-      <span class="meta" id="version"></span>
-    </div>
+					const element = document.currentScript.parentElement;
 
-    <p class="meta">Next milestones:</p>
-    <ul>
-      <li>M1 — core CalDAV (works in Thunderbird &amp; Apple Calendar)</li>
-      <li>M2 — this screen becomes the real SvelteKit admin UI</li>
-    </ul>
-    <p class="meta">Probe: <a href="/healthz"><code>/healthz</code></a></p>
-  </main>
-
-  <script>
-    fetch('/healthz').then(r => r.json()).then(h => {
-      document.getElementById('dot').classList.toggle('ok', h.status === 'ok');
-      document.getElementById('status-text').textContent =
-        h.status === 'ok' ? 'Server healthy' : 'Server degraded';
-      document.getElementById('version').textContent = 'v' + h.version + ' · db ' + h.db;
-      if (h.server_name) document.getElementById('server-name').textContent = h.server_name;
-    }).catch(() => {
-      document.getElementById('status-text').textContent = 'Unreachable';
-    });
-  </script>
-</body>
+					import("/_app/immutable/entry/start.BqUyRpmX.js").then(async (kit) => {
+						kit.init(__sveltekit_1pems2b);
+						const app = await import("/_app/immutable/entry/app.CdVCZ3KH.js");
+						kit.start(app, element);
+					});
+				}
+			</script>
+		</div>
+	</body>
 </html>

@@ -76,13 +76,17 @@ async fn login(State(state): State<AppState>, Json(req): Json<LoginReq>) -> Resp
     {
         return server_error();
     }
-    let cookie = format!(
-        "{COOKIE}={sid}; HttpOnly; SameSite=Lax; Path=/; Max-Age={}",
-        SESSION_HOURS * 3600
-    );
+    let max_age = SESSION_HOURS * 3600;
+    let session_cookie =
+        format!("{COOKIE}={sid}; HttpOnly; SameSite=Lax; Path=/; Max-Age={max_age}");
+    // Readable by JS (double-submit): the SPA echoes it in X-CSRF-Token.
+    let csrf_cookie = format!("wk_csrf={csrf}; SameSite=Lax; Path=/; Max-Age={max_age}");
     (
         StatusCode::OK,
-        [(header::SET_COOKIE, cookie)],
+        [
+            (header::SET_COOKIE, session_cookie),
+            (header::SET_COOKIE, csrf_cookie),
+        ],
         Json(json!({ "user": user_json(&principal), "csrf": csrf })),
     )
         .into_response()
@@ -93,7 +97,15 @@ async fn logout(State(state): State<AppState>, headers: HeaderMap) -> Response {
         let _ = state.store.delete_session(&sid);
     }
     let clear = format!("{COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0");
-    (StatusCode::NO_CONTENT, [(header::SET_COOKIE, clear)]).into_response()
+    let clear_csrf = "wk_csrf=; SameSite=Lax; Path=/; Max-Age=0".to_string();
+    (
+        StatusCode::NO_CONTENT,
+        [
+            (header::SET_COOKIE, clear),
+            (header::SET_COOKIE, clear_csrf),
+        ],
+    )
+        .into_response()
 }
 
 async fn me(Extension(SessionUser(p)): Extension<SessionUser>) -> Response {

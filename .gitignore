@@ -10,10 +10,10 @@
 # Local config
 /weekling.toml
 
-# UI toolchain (lands at M2)
-/web/node_modules
-/web/.svelte-kit
-/web/build
+# UI toolchain. Source is in ui/; the built SPA is committed to web/ so that
+# `cargo build` and the Docker image need no Node. Regenerate: cd ui && npm run build
+/ui/node_modules
+/ui/.svelte-kit
 
 # Editor / OS
 .DS_Store

@@ -37,6 +37,24 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
+  ui:
+    name: build UI (SvelteKit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - run: npm ci
+        working-directory: ui
+      - run: npm run build
+        working-directory: ui
+      # The built SPA is committed to web/; warn if it drifted from source.
+      - name: check web/ is current
+        run: git diff --stat -- web && git diff --quiet -- web ':(exclude)web/index.html' ':(exclude)web/_app/version.json'
+
   docker:
     name: docker build
     runs-on: ubuntu-latest

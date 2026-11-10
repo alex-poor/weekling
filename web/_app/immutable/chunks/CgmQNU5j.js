@@ -1,0 +1,1 @@
+import{I as e}from"./DVAeFSaf.js";var t=e({message:``,visible:!1}),n;function r(e){t.message=e,t.visible=!0,clearTimeout(n),n=setTimeout(()=>{t.visible=!1},2600)}export{t as n,r as t};
