@@ -56,6 +56,12 @@ docker compose up --build
 # open http://localhost:5232
 ```
 
+Or run the prebuilt multi-arch image straight from GHCR:
+
+```sh
+docker run -p 5232:5232 -v weekling:/var/lib/weekling ghcr.io/alex-poor/weekling:latest
+```
+
 **From source:**
 
 ```sh
