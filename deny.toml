@@ -21,6 +21,7 @@ allow = [
     "Unicode-DFS-2016",
     "CC0-1.0",
     "0BSD",
+    "CDLA-Permissive-2.0", # webpki-roots (Mozilla CA bundle, a data license)
 ]
 
 [bans]
