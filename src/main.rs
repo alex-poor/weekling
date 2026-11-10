@@ -11,6 +11,7 @@ mod dav;
 mod http;
 mod ical;
 mod push;
+mod serve;
 mod store;
 mod util;
 mod web;
@@ -20,7 +21,6 @@ use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::Context;
-use tokio::net::TcpListener;
 
 use crate::config::Config;
 use crate::http::AppState;
@@ -29,6 +29,8 @@ use crate::store::Store;
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     init_tracing();
+    // Pin the rustls crypto provider (ring) for TLS / ACME / outbound push.
+    let _ = rustls::crypto::ring::default_provider().install_default();
 
     let config = Config::load().context("loading configuration")?;
     std::fs::create_dir_all(&config.data_dir)
@@ -56,16 +58,10 @@ async fn main() -> anyhow::Result<()> {
         push: Arc::new(push),
     };
 
+    let tls = state.config.tls.clone();
+    let data_dir = state.config.data_dir.clone();
     let app = http::router(state);
-    let listener = TcpListener::bind(addr)
-        .await
-        .with_context(|| format!("binding {addr}"))?;
-    tracing::info!(%addr, "weekling listening");
-
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await
-        .context("server error")?;
+    serve::run(app, addr, &tls, &data_dir).await?;
 
     tracing::info!("shutdown complete");
     Ok(())
@@ -80,7 +76,7 @@ fn init_tracing() {
 }
 
 /// Resolve when the process receives Ctrl-C or SIGTERM.
-async fn shutdown_signal() {
+pub(crate) async fn shutdown_signal() {
     let ctrl_c = async {
         tokio::signal::ctrl_c()
             .await

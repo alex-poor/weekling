@@ -237,10 +237,10 @@ pub fn parse_mkcalendar(body: &[u8]) -> MkCalProps {
                             };
                             String::from_utf8_lossy(l).to_ascii_lowercase()
                         };
-                        if key == "name" {
-                            if let Ok(v) = a.normalized_value(quick_xml::XmlVersion::Implicit1_0) {
-                                comps.push(v.into_owned());
-                            }
+                        if key == "name"
+                            && let Ok(v) = a.normalized_value(quick_xml::XmlVersion::Implicit1_0)
+                        {
+                            comps.push(v.into_owned());
                         }
                     }
                 }

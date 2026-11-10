@@ -22,10 +22,10 @@ pub async fn static_handler(uri: Uri) -> Response {
     }
 
     // No file extension → treat as an app route and serve the shell.
-    if !path.contains('.') {
-        if let Some(index) = WebAssets::get("index.html") {
-            return serve("index.html", index.data.into_owned());
-        }
+    if !path.contains('.')
+        && let Some(index) = WebAssets::get("index.html")
+    {
+        return serve("index.html", index.data.into_owned());
     }
 
     (StatusCode::NOT_FOUND, "not found").into_response()

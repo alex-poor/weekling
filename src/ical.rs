@@ -22,11 +22,11 @@ fn unfold(input: &str) -> Vec<String> {
     let mut lines: Vec<String> = Vec::new();
     for raw in input.split('\n') {
         let line = raw.strip_suffix('\r').unwrap_or(raw);
-        if let Some(rest) = line.strip_prefix([' ', '\t']) {
-            if let Some(last) = lines.last_mut() {
-                last.push_str(rest);
-                continue;
-            }
+        if let Some(rest) = line.strip_prefix([' ', '\t'])
+            && let Some(last) = lines.last_mut()
+        {
+            last.push_str(rest);
+            continue;
         }
         lines.push(line.to_string());
     }

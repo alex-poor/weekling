@@ -18,6 +18,38 @@ pub struct Config {
     pub server_name: String,
     /// Maximum request body size in bytes (PUT / REPORT guard).
     pub max_body_bytes: usize,
+    /// TLS configuration (off by default — terminate TLS at a reverse proxy, or
+    /// enable built-in `files`/`acme` here).
+    pub tls: TlsConfig,
+}
+
+/// Built-in TLS. `mode = "off"` serves plain HTTP (for a reverse proxy);
+/// `"files"` loads a cert/key pair; `"acme"` obtains and renews a Let's Encrypt
+/// certificate automatically (needs public reachability on port 443).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct TlsConfig {
+    pub mode: String,
+    pub cert_file: String,
+    pub key_file: String,
+    pub domains: Vec<String>,
+    pub email: String,
+    pub staging: bool,
+    pub cache_dir: String,
+}
+
+impl Default for TlsConfig {
+    fn default() -> Self {
+        Self {
+            mode: "off".to_string(),
+            cert_file: String::new(),
+            key_file: String::new(),
+            domains: Vec::new(),
+            email: String::new(),
+            staging: false,
+            cache_dir: String::new(),
+        }
+    }
 }
 
 impl Default for Config {
@@ -27,6 +59,7 @@ impl Default for Config {
             data_dir: "./data".to_string(),
             server_name: "Weekling".to_string(),
             max_body_bytes: 10 * 1024 * 1024, // 10 MiB
+            tls: TlsConfig::default(),
         }
     }
 }
@@ -65,10 +98,35 @@ impl Config {
         if let Ok(v) = std::env::var("WEEKLING_SERVER_NAME") {
             self.server_name = v;
         }
-        if let Ok(v) = std::env::var("WEEKLING_MAX_BODY_BYTES") {
-            if let Ok(n) = v.parse() {
-                self.max_body_bytes = n;
-            }
+        if let Ok(v) = std::env::var("WEEKLING_MAX_BODY_BYTES")
+            && let Ok(n) = v.parse()
+        {
+            self.max_body_bytes = n;
+        }
+        if let Ok(v) = std::env::var("WEEKLING_TLS_MODE") {
+            self.tls.mode = v;
+        }
+        if let Ok(v) = std::env::var("WEEKLING_TLS_CERT_FILE") {
+            self.tls.cert_file = v;
+        }
+        if let Ok(v) = std::env::var("WEEKLING_TLS_KEY_FILE") {
+            self.tls.key_file = v;
+        }
+        if let Ok(v) = std::env::var("WEEKLING_TLS_DOMAINS") {
+            self.tls.domains = v
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+        }
+        if let Ok(v) = std::env::var("WEEKLING_TLS_EMAIL") {
+            self.tls.email = v;
+        }
+        if let Ok(v) = std::env::var("WEEKLING_TLS_STAGING") {
+            self.tls.staging = matches!(v.as_str(), "1" | "true" | "yes");
+        }
+        if let Ok(v) = std::env::var("WEEKLING_TLS_CACHE_DIR") {
+            self.tls.cache_dir = v;
         }
     }
 }
