@@ -26,3 +26,13 @@ mode = "off"
 # email   = "you@example.com"
 # staging = false            # true while testing (avoids Let's Encrypt rate limits)
 # cache_dir = ""             # defaults to <data_dir>/acme
+
+# OIDC single sign-on for the management UI (Authentik / Keycloak / Google, …).
+# Enabled when issuer + client_id are set. The username (preferred_username, else
+# email) claim is matched to an existing Weekling user — no auto-provisioning.
+[oidc]
+# issuer = "https://id.example.com/application/o/weekling/"
+# client_id = "weekling"
+# client_secret = "…"
+# redirect_url = "https://calendar.example.com/api/oidc/callback"
+# scopes = ["email", "profile"]   # "openid" is always added

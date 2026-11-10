@@ -1,4 +1,5 @@
 <script>
+	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { api } from '#lib/api.js';
 	import { session } from '#lib/session.svelte.js';
@@ -7,6 +8,16 @@
 	let password = $state('');
 	let error = $state('');
 	let busy = $state(false);
+	let sso = $state(false);
+
+	onMount(async () => {
+		try {
+			const info = await api('/auth-info');
+			sso = !!info.oidc;
+		} catch {
+			/* leave SSO hidden */
+		}
+	});
 
 	async function submit(e) {
 		e.preventDefault();
@@ -51,6 +62,11 @@
 		<button class="btn primary full" type="submit" disabled={busy}>
 			{busy ? 'Signing in…' : 'Sign in'}
 		</button>
+
+		{#if sso}
+			<div class="divider"><span>or</span></div>
+			<a class="btn full" href="/api/oidc/login">Sign in with SSO</a>
+		{/if}
 	</form>
 </div>
 
@@ -89,5 +105,20 @@
 		color: var(--danger);
 		font-size: 13px;
 		margin: 0 0 12px;
+	}
+	.divider {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		color: var(--muted);
+		font-size: 12px;
+		margin: 16px 0;
+	}
+	.divider::before,
+	.divider::after {
+		content: '';
+		flex: 1;
+		height: 1px;
+		background: var(--line);
 	}
 </style>

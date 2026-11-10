@@ -10,6 +10,7 @@ mod config;
 mod dav;
 mod http;
 mod ical;
+mod oidc;
 mod push;
 mod serve;
 mod store;
@@ -52,10 +53,12 @@ async fn main() -> anyhow::Result<()> {
         .with_context(|| format!("invalid bind address {}", config.bind))?;
 
     let push = push::Push::load_or_create(&config.data_dir).context("loading VAPID key")?;
+    let oidc = oidc::init(&config.oidc).await;
     let state = AppState {
         config: Arc::new(config),
         store: Arc::new(store),
         push: Arc::new(push),
+        oidc,
     };
 
     let tls = state.config.tls.clone();

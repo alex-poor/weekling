@@ -21,6 +21,27 @@ pub struct Config {
     /// TLS configuration (off by default — terminate TLS at a reverse proxy, or
     /// enable built-in `files`/`acme` here).
     pub tls: TlsConfig,
+    /// Optional OIDC single sign-on for the management UI.
+    pub oidc: OidcConfig,
+}
+
+/// OIDC SSO. Enabled when `issuer` and `client_id` are set. The management UI
+/// then offers "Sign in with SSO"; the username claim is matched to an existing
+/// Weekling account (no auto-provisioning).
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct OidcConfig {
+    pub issuer: String,
+    pub client_id: String,
+    pub client_secret: String,
+    pub redirect_url: String,
+    pub scopes: Vec<String>,
+}
+
+impl OidcConfig {
+    pub fn enabled(&self) -> bool {
+        !self.issuer.is_empty() && !self.client_id.is_empty()
+    }
 }
 
 /// Built-in TLS. `mode = "off"` serves plain HTTP (for a reverse proxy);
@@ -60,6 +81,7 @@ impl Default for Config {
             server_name: "Weekling".to_string(),
             max_body_bytes: 10 * 1024 * 1024, // 10 MiB
             tls: TlsConfig::default(),
+            oidc: OidcConfig::default(),
         }
     }
 }
@@ -127,6 +149,25 @@ impl Config {
         }
         if let Ok(v) = std::env::var("WEEKLING_TLS_CACHE_DIR") {
             self.tls.cache_dir = v;
+        }
+        if let Ok(v) = std::env::var("WEEKLING_OIDC_ISSUER") {
+            self.oidc.issuer = v;
+        }
+        if let Ok(v) = std::env::var("WEEKLING_OIDC_CLIENT_ID") {
+            self.oidc.client_id = v;
+        }
+        if let Ok(v) = std::env::var("WEEKLING_OIDC_CLIENT_SECRET") {
+            self.oidc.client_secret = v;
+        }
+        if let Ok(v) = std::env::var("WEEKLING_OIDC_REDIRECT_URL") {
+            self.oidc.redirect_url = v;
+        }
+        if let Ok(v) = std::env::var("WEEKLING_OIDC_SCOPES") {
+            self.oidc.scopes = v
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
         }
     }
 }

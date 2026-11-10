@@ -41,7 +41,35 @@ pub fn router(state: AppState) -> Router<AppState> {
 
     Router::new()
         .route("/api/login", post(login))
+        .route("/api/auth-info", get(auth_info))
         .merge(protected)
+}
+
+/// Public: what sign-in methods the UI should offer.
+async fn auth_info(State(state): State<AppState>) -> Response {
+    Json(json!({ "oidc": state.oidc.is_some() })).into_response()
+}
+
+/// Create a session and return the two Set-Cookie headers (session + CSRF).
+/// Shared by password login and OIDC callback.
+pub(crate) fn issue_session(
+    store: &crate::store::Store,
+    principal_id: &str,
+) -> anyhow::Result<[(header::HeaderName, String); 2]> {
+    let sid = util::new_secret();
+    let csrf = util::new_secret();
+    store.create_session(&sid, principal_id, &csrf, SESSION_HOURS)?;
+    let max_age = SESSION_HOURS * 3600;
+    Ok([
+        (
+            header::SET_COOKIE,
+            format!("{COOKIE}={sid}; HttpOnly; SameSite=Lax; Path=/; Max-Age={max_age}"),
+        ),
+        (
+            header::SET_COOKIE,
+            format!("wk_csrf={csrf}; SameSite=Lax; Path=/; Max-Age={max_age}"),
+        ),
+    ])
 }
 
 // ---- auth ---------------------------------------------------------------
@@ -67,27 +95,14 @@ async fn login(State(state): State<AppState>, Json(req): Json<LoginReq>) -> Resp
         return unauthorized();
     }
 
-    let sid = util::new_secret();
-    let csrf = util::new_secret();
-    if state
-        .store
-        .create_session(&sid, &principal.id, &csrf, SESSION_HOURS)
-        .is_err()
-    {
-        return server_error();
-    }
-    let max_age = SESSION_HOURS * 3600;
-    let session_cookie =
-        format!("{COOKIE}={sid}; HttpOnly; SameSite=Lax; Path=/; Max-Age={max_age}");
-    // Readable by JS (double-submit): the SPA echoes it in X-CSRF-Token.
-    let csrf_cookie = format!("wk_csrf={csrf}; SameSite=Lax; Path=/; Max-Age={max_age}");
+    let cookies = match issue_session(&state.store, &principal.id) {
+        Ok(c) => c,
+        Err(_) => return server_error(),
+    };
     (
         StatusCode::OK,
-        [
-            (header::SET_COOKIE, session_cookie),
-            (header::SET_COOKIE, csrf_cookie),
-        ],
-        Json(json!({ "user": user_json(&principal), "csrf": csrf })),
+        cookies,
+        Json(json!({ "user": user_json(&principal) })),
     )
         .into_response()
 }

@@ -21,6 +21,7 @@ pub struct AppState {
     pub config: Arc<Config>,
     pub store: Arc<Store>,
     pub push: Arc<crate::push::Push>,
+    pub oidc: Option<Arc<crate::oidc::Oidc>>,
 }
 
 pub fn router(state: AppState) -> Router {
@@ -31,6 +32,7 @@ pub fn router(state: AppState) -> Router {
         // RFC 6764 service discovery → the CalDAV context path.
         .route("/.well-known/caldav", any(wellknown))
         .merge(crate::api::router(state.clone()))
+        .merge(crate::oidc::router())
         .merge(crate::dav::router(state.clone()))
         // Everything else falls through to the embedded UI (SPA shell).
         .fallback(crate::web::static_handler)

@@ -2,7 +2,12 @@
 
 [advisories]
 # Fail on any known vulnerability; tune with explicit, commented ignores only.
-ignore = []
+ignore = [
+    # Marvin timing attack on RSA *private-key* ops (no fixed release yet). Reached
+    # only via openidconnect, which uses `rsa` to VERIFY id_token signatures with the
+    # IdP's PUBLIC key — the vulnerable private-key path is never exercised here.
+    "RUSTSEC-2023-0071",
+]
 
 [licenses]
 # Our own crate is AGPL-3.0; it is not published, so skip it here and vet deps.
