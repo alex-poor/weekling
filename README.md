@@ -3,9 +3,24 @@
 A small, lightning-fast, self-hosted calendar server with a beautiful management UI.
 Linux-only, written in Rust, built for homes, families, and small businesses.
 
-> **Status: M0 skeleton.** The server boots, runs SQLite migrations, serves `/healthz`
-> and an embedded UI placeholder. CalDAV lands at M1. See [`DESIGN.md`](DESIGN.md) for the
-> full design and roadmap.
+> **Status: M1 — core CalDAV.** The server speaks enough CalDAV to connect and sync
+> with mainstream clients: service discovery, PROPFIND, PUT/GET/DELETE with ETags,
+> MKCALENDAR/PROPPATCH, and REPORTs (calendar-query with time-range, calendar-multiget,
+> sync-collection). Auth is argon2id app passwords over HTTP Basic. The management UI
+> is still a placeholder (M2). See [`DESIGN.md`](DESIGN.md) for the full design and roadmap.
+
+## Set up a calendar (admin CLI)
+
+```fish
+weekling user add alice --display "Alice"
+weekling token add alice              # prints an app password — copy it once
+weekling calendar add alice "Home" --id home --color "#5b8defff"
+weekling calendar ls alice
+```
+
+Then point a CalDAV client (Apple Calendar, Thunderbird, DAVx⁵, GNOME Calendar) at the
+server URL `http://<host>:5232/` (it auto-discovers via `/.well-known/caldav`), with the
+username and the app password. Run `weekling help` for all commands.
 
 ## Quick start
 

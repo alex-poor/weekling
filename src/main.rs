@@ -3,9 +3,14 @@
 //! M0 skeleton: config + SQLite store (with migrations) + axum server
 //! exposing `/healthz` and an embedded UI shell. See DESIGN.md.
 
+mod auth;
+mod cli;
 mod config;
+mod dav;
 mod http;
+mod ical;
 mod store;
+mod util;
 mod web;
 
 use std::net::SocketAddr;
@@ -29,6 +34,12 @@ async fn main() -> anyhow::Result<()> {
 
     let db_path = Path::new(&config.data_dir).join("weekling.db");
     let store = Store::open(&db_path).context("opening store")?;
+
+    // Admin subcommands run against the store, then exit.
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if cli::dispatch(&store, &args)? {
+        return Ok(());
+    }
     tracing::info!(db = %db_path.display(), "store ready");
 
     let addr: SocketAddr = config
