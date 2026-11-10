@@ -264,6 +264,63 @@ impl Store {
         Ok(p)
     }
 
+    /// Every user as a full [`Principal`] — for the admin Users page.
+    pub fn all_users(&self) -> Result<Vec<Principal>> {
+        let conn = self.conn.lock().expect("poisoned");
+        let mut stmt = conn.prepare(
+            "SELECT id, display_name, email, is_admin FROM principals
+             WHERE kind = 'user' ORDER BY id",
+        )?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok(Principal {
+                    id: r.get(0)?,
+                    display_name: r.get(1)?,
+                    email: r.get(2)?,
+                    is_admin: r.get::<_, i64>(3)? != 0,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    /// Number of users with admin rights — used to guard against removing the last one.
+    pub fn admin_count(&self) -> Result<i64> {
+        let conn = self.conn.lock().expect("poisoned");
+        let n = conn.query_row(
+            "SELECT COUNT(*) FROM principals WHERE kind = 'user' AND is_admin = 1",
+            [],
+            |r| r.get(0),
+        )?;
+        Ok(n)
+    }
+
+    /// Grant or revoke admin on a user. Returns true if the user existed.
+    pub fn set_admin(&self, id: &str, is_admin: bool) -> Result<bool> {
+        let conn = self.conn.lock().expect("poisoned");
+        let n = conn.execute(
+            "UPDATE principals SET is_admin = ?2 WHERE id = ?1 AND kind = 'user'",
+            params![id, is_admin as i64],
+        )?;
+        Ok(n > 0)
+    }
+
+    /// Delete a user and everything they own (calendars, credentials, sessions,
+    /// shares — all `ON DELETE CASCADE`). Returns true if the user existed.
+    pub fn delete_user(&self, id: &str) -> Result<bool> {
+        let conn = self.conn.lock().expect("poisoned");
+        let n = conn.execute(
+            "DELETE FROM principals WHERE id = ?1 AND kind = 'user'",
+            [id],
+        )?;
+        Ok(n > 0)
+    }
+
+    /// Whether a user has an account password set (can sign in to the web UI).
+    pub fn has_password(&self, principal_id: &str) -> Result<bool> {
+        Ok(self.password_hash(principal_id)?.is_some())
+    }
+
     // ---- credentials (app passwords) -------------------------------------
 
     pub fn add_app_password(

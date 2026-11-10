@@ -21,13 +21,14 @@
 		}
 	});
 
-	const nav = [
+	const nav = $derived([
 		{ href: '/', label: 'Dashboard' },
 		{ href: '/calendars', label: 'Calendars' },
 		{ href: '/invitations', label: 'Invitations' },
+		...(session.user?.is_admin ? [{ href: '/users', label: 'Users' }] : []),
 		{ href: '/account', label: 'App passwords' },
 		{ href: '/connect', label: 'Connect a device' }
-	];
+	]);
 
 	function active(href) {
 		const p = page.url.pathname;

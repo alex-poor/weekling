@@ -46,6 +46,12 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/api/calendars/{id}/shares/{grantee}", delete(remove_share))
         .route("/api/inbox", get(list_inbox))
         .route("/api/inbox/{id}/reply", post(reply_inbox))
+        // Admin-only user management (each handler checks `is_admin`).
+        .route("/api/users", get(list_users).post(create_user))
+        .route("/api/users/{id}", delete(delete_user))
+        .route("/api/users/{id}/password", post(set_user_password))
+        .route("/api/users/{id}/admin", post(set_user_admin))
+        .route("/api/users/{id}/tokens", post(mint_user_token))
         .layer(middleware::from_fn_with_state(state, require_session));
 
     Router::new()
@@ -280,32 +286,35 @@ struct NewToken {
     label: Option<String>,
 }
 
+/// Create an app password for `principal_id`, returning (credential id, plaintext
+/// token). The plaintext is shown to the caller exactly once and never stored.
+async fn mint_token(
+    state: &AppState,
+    principal_id: &str,
+    label: &str,
+) -> anyhow::Result<(String, String)> {
+    let token = util::new_token();
+    let tclone = token.clone();
+    let hash = tokio::task::spawn_blocking(move || hash_secret(&tclone)).await??;
+    let id = util::new_id();
+    state.store.add_app_password(&id, principal_id, label, &hash)?;
+    Ok((id, token))
+}
+
 async fn create_token(
     State(state): State<AppState>,
     Extension(SessionUser(p)): Extension<SessionUser>,
     Json(req): Json<NewToken>,
 ) -> Response {
     let label = req.label.unwrap_or_else(|| "app password".into());
-    let token = util::new_token();
-    let tclone = token.clone();
-    let hash = match tokio::task::spawn_blocking(move || hash_secret(&tclone)).await {
-        Ok(Ok(h)) => h,
-        _ => return server_error(),
-    };
-    let id = util::new_id();
-    if state
-        .store
-        .add_app_password(&id, &p.id, &label, &hash)
-        .is_err()
-    {
-        return server_error();
+    match mint_token(&state, &p.id, &label).await {
+        Ok((id, token)) => (
+            StatusCode::CREATED,
+            Json(json!({ "id": id, "label": label, "token": token })),
+        )
+            .into_response(),
+        Err(_) => server_error(),
     }
-    // The token is returned exactly once.
-    (
-        StatusCode::CREATED,
-        Json(json!({ "id": id, "label": label, "token": token })),
-    )
-        .into_response()
 }
 
 async fn delete_token(
@@ -498,6 +507,261 @@ fn access_str(a: Access) -> &'static str {
     }
 }
 
+// ---- user management (admin) --------------------------------------------
+
+const MIN_PASSWORD_LEN: usize = 8;
+
+/// A valid username / principal id: 1–64 chars of letters, digits, '.', '_', '-'.
+fn valid_username(u: &str) -> bool {
+    !u.is_empty()
+        && u.len() <= 64
+        && u.chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+}
+
+async fn list_users(
+    State(state): State<AppState>,
+    Extension(SessionUser(p)): Extension<SessionUser>,
+) -> Response {
+    if !p.is_admin {
+        return forbidden();
+    }
+    match state.store.all_users() {
+        Ok(users) => {
+            let out: Vec<_> = users
+                .iter()
+                .map(|u| {
+                    let has_pw = state.store.has_password(&u.id).unwrap_or(false);
+                    admin_user_json(u, has_pw)
+                })
+                .collect();
+            Json(out).into_response()
+        }
+        Err(_) => server_error(),
+    }
+}
+
+#[derive(Deserialize)]
+struct NewUser {
+    username: String,
+    #[serde(default)]
+    display_name: Option<String>,
+    #[serde(default)]
+    email: Option<String>,
+    #[serde(default)]
+    password: Option<String>,
+    #[serde(default)]
+    is_admin: bool,
+    #[serde(default)]
+    create_home: bool,
+    #[serde(default)]
+    app_password: bool,
+}
+
+async fn create_user(
+    State(state): State<AppState>,
+    Extension(SessionUser(p)): Extension<SessionUser>,
+    Json(req): Json<NewUser>,
+) -> Response {
+    if !p.is_admin {
+        return forbidden();
+    }
+    let username = req.username.trim().to_string();
+    if !valid_username(&username) {
+        return bad_request("username must be 1–64 chars: letters, digits, '.', '_', or '-'");
+    }
+    match state.store.get_principal(&username) {
+        Ok(Some(_)) => return bad_request("a user with that name already exists"),
+        Ok(None) => {}
+        Err(_) => return server_error(),
+    }
+    if let Some(pw) = req.password.as_deref()
+        && pw.chars().count() < MIN_PASSWORD_LEN
+    {
+        return bad_request("password must be at least 8 characters");
+    }
+
+    let display = req
+        .display_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(&username)
+        .to_string();
+    let email = req
+        .email
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+
+    if state
+        .store
+        .create_user(&username, &display, email.as_deref(), req.is_admin)
+        .is_err()
+    {
+        return server_error();
+    }
+    if let Some(pw) = req.password {
+        let hash = match tokio::task::spawn_blocking(move || hash_secret(&pw)).await {
+            Ok(Ok(h)) => h,
+            _ => return server_error(),
+        };
+        if state
+            .store
+            .set_password(&util::new_id(), &username, &hash)
+            .is_err()
+        {
+            return server_error();
+        }
+    }
+    if req.create_home
+        && state
+            .store
+            .create_calendar(
+                &util::new_id(),
+                &username,
+                "Home",
+                "VEVENT",
+                Some("#3b5bff"),
+                None,
+            )
+            .is_err()
+    {
+        return server_error();
+    }
+
+    // Optionally mint a CalDAV app password, returned once so a device can be set
+    // up for this user without them signing in.
+    let mut token = None;
+    if req.app_password {
+        match mint_token(&state, &username, "app password").await {
+            Ok((_, t)) => token = Some(t),
+            Err(_) => return server_error(),
+        }
+    }
+
+    let has_pw = state.store.has_password(&username).unwrap_or(false);
+    let Ok(Some(created)) = state.store.get_principal(&username) else {
+        return server_error();
+    };
+    let mut body = admin_user_json(&created, has_pw);
+    if let Some(t) = token {
+        body["token"] = json!(t);
+    }
+    (StatusCode::CREATED, Json(body)).into_response()
+}
+
+#[derive(Deserialize)]
+struct SetPassword {
+    password: String,
+}
+
+async fn set_user_password(
+    State(state): State<AppState>,
+    Extension(SessionUser(p)): Extension<SessionUser>,
+    Path(id): Path<String>,
+    Json(req): Json<SetPassword>,
+) -> Response {
+    if !p.is_admin {
+        return forbidden();
+    }
+    if req.password.chars().count() < MIN_PASSWORD_LEN {
+        return bad_request("password must be at least 8 characters");
+    }
+    match state.store.get_principal(&id) {
+        Ok(Some(_)) => {}
+        Ok(None) => return not_found(),
+        Err(_) => return server_error(),
+    }
+    let pw = req.password;
+    let hash = match tokio::task::spawn_blocking(move || hash_secret(&pw)).await {
+        Ok(Ok(h)) => h,
+        _ => return server_error(),
+    };
+    match state.store.set_password(&util::new_id(), &id, &hash) {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(_) => server_error(),
+    }
+}
+
+#[derive(Deserialize)]
+struct SetAdmin {
+    is_admin: bool,
+}
+
+async fn set_user_admin(
+    State(state): State<AppState>,
+    Extension(SessionUser(p)): Extension<SessionUser>,
+    Path(id): Path<String>,
+    Json(req): Json<SetAdmin>,
+) -> Response {
+    if !p.is_admin {
+        return forbidden();
+    }
+    // Don't let the last remaining admin be demoted — that would lock the UI out.
+    if !req.is_admin {
+        let target_is_admin = matches!(state.store.get_principal(&id), Ok(Some(ref t)) if t.is_admin);
+        if target_is_admin && matches!(state.store.admin_count(), Ok(n) if n <= 1) {
+            return bad_request("can't remove the last admin");
+        }
+    }
+    match state.store.set_admin(&id, req.is_admin) {
+        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        Ok(false) => not_found(),
+        Err(_) => server_error(),
+    }
+}
+
+async fn delete_user(
+    State(state): State<AppState>,
+    Extension(SessionUser(p)): Extension<SessionUser>,
+    Path(id): Path<String>,
+) -> Response {
+    if !p.is_admin {
+        return forbidden();
+    }
+    if id == p.id {
+        return bad_request("you can't delete your own account");
+    }
+    match state.store.delete_user(&id) {
+        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        Ok(false) => not_found(),
+        Err(_) => server_error(),
+    }
+}
+
+async fn mint_user_token(
+    State(state): State<AppState>,
+    Extension(SessionUser(p)): Extension<SessionUser>,
+    Path(id): Path<String>,
+) -> Response {
+    if !p.is_admin {
+        return forbidden();
+    }
+    match state.store.get_principal(&id) {
+        Ok(Some(_)) => {}
+        Ok(None) => return not_found(),
+        Err(_) => return server_error(),
+    }
+    match mint_token(&state, &id, "app password").await {
+        Ok((tid, token)) => {
+            (StatusCode::CREATED, Json(json!({ "id": tid, "token": token }))).into_response()
+        }
+        Err(_) => server_error(),
+    }
+}
+
+fn admin_user_json(p: &Principal, has_password: bool) -> Value {
+    json!({
+        "id": p.id,
+        "display_name": p.display_name,
+        "email": p.email,
+        "is_admin": p.is_admin,
+        "has_password": has_password,
+    })
+}
+
 // ---- helpers ------------------------------------------------------------
 
 fn user_json(p: &Principal) -> Value {
@@ -550,6 +814,9 @@ fn cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
 
 fn unauthorized() -> Response {
     (StatusCode::UNAUTHORIZED, "authentication required\n").into_response()
+}
+fn forbidden() -> Response {
+    (StatusCode::FORBIDDEN, "admin access required\n").into_response()
 }
 fn not_found() -> Response {
     (StatusCode::NOT_FOUND, "not found\n").into_response()

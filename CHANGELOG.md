@@ -8,6 +8,10 @@ All notable changes to Weekling are documented here. The format is based on
 
 ### Added
 
+- **Admin Users page** — admins can now create accounts, set/reset passwords, grant or
+  revoke admin, mint a CalDAV app password for someone, and delete users entirely from the
+  web UI (no CLI). New admin-only API under `/api/users`. The last admin can't be demoted or
+  deleted, so you can't lock yourself out.
 - **First-run admin bootstrap** — on a fresh install with no users, create the admin from
   `WEEKLING_ADMIN_USERNAME` + `WEEKLING_ADMIN_PASSWORD` (or `WEEKLING_ADMIN_PASSWORD_FILE`),
   plus optional `WEEKLING_ADMIN_DISPLAY` / `WEEKLING_ADMIN_EMAIL`, and a starter calendar. Makes

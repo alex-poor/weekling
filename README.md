@@ -47,7 +47,10 @@ SQLite file, no runtime to install.
 - 🔒 **Secure by default** — argon2id app passwords for clients, cookie+CSRF sessions for the UI,
   built-in **TLS** with automatic **Let's Encrypt** (ACME), and optional **OIDC single sign-on**.
 - 🎨 **A lovely admin UI** — a SvelteKit "sticker sheet": lemon top bar, calendars as big colour
-  slabs, die-cut badges. Create calendars, manage shares, mint app passwords, answer invites.
+  slabs, die-cut badges. Create calendars, add family members, manage shares, mint app passwords,
+  answer invites.
+- 👪 **Users in the UI** — admins create accounts, reset passwords, hand out app passwords, and
+  grant admin without touching a shell. The CLI is there if you prefer it.
 - 🪶 **Tiny & tidy** — a single static binary, SQLite storage, minimal dependencies, and a
   non-root, read-only-rootfs container.
 
