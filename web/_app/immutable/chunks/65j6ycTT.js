@@ -1,0 +1,1 @@
+import{R as e}from"./57x1q8Fy.js";var t=e({user:null});export{t};

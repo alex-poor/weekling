@@ -17,6 +17,7 @@
 	];
 
 	let calendars = $state([]);
+	let shared = $state([]);
 	let loaded = $state(false);
 	let editing = $state(null); // null | {} (new) | calendar (existing)
 
@@ -27,11 +28,60 @@
 	let fTodo = $state(false);
 	let busy = $state(false);
 
+	// sharing
+	let sharing = $state(null); // the calendar whose shares are open
+	let shareList = $state([]);
+	let users = $state([]);
+	let shareGrantee = $state('');
+	let shareAccess = $state('read-write');
+
 	async function load() {
-		calendars = await api('/calendars');
+		[calendars, shared] = await Promise.all([api('/calendars'), api('/shared')]);
 		loaded = true;
 	}
 	onMount(load);
+
+	async function openShare(cal) {
+		sharing = cal;
+		shareGrantee = '';
+		shareAccess = 'read-write';
+		[shareList, users] = await Promise.all([
+			api(`/calendars/${cal.id}/shares`),
+			api('/principals')
+		]);
+	}
+
+	async function addShare(e) {
+		e.preventDefault();
+		if (!shareGrantee) return;
+		try {
+			await api(`/calendars/${sharing.id}/shares`, {
+				method: 'POST',
+				body: { grantee: shareGrantee, access: shareAccess }
+			});
+			shareList = await api(`/calendars/${sharing.id}/shares`);
+			shareGrantee = '';
+			showToast('Shared');
+		} catch (err) {
+			showToast(err.message);
+		}
+	}
+
+	async function removeShare(grantee) {
+		try {
+			await api(`/calendars/${sharing.id}/shares/${grantee}`, { method: 'DELETE' });
+			shareList = await api(`/calendars/${sharing.id}/shares`);
+			showToast('Access removed');
+		} catch (err) {
+			showToast(err.message);
+		}
+	}
+
+	const ACCESS_LABEL = {
+		'read-write': 'Can edit',
+		read: 'Can view',
+		freebusy: 'Free/busy only'
+	};
 
 	function openNew() {
 		editing = {};
@@ -119,11 +169,28 @@
 					<button class="btn sm ghost" onclick={() => copyUrl(cal)} title="Copy CalDAV URL">
 						<Icon name="copy" size={15} />
 					</button>
+					<button class="btn sm" onclick={() => openShare(cal)}>Share</button>
 					<button class="btn sm" onclick={() => openEdit(cal)}>Edit</button>
 					<button class="btn sm danger" onclick={() => remove(cal)} title="Delete">
 						<Icon name="trash" size={15} />
 					</button>
 				</div>
+			</div>
+		{/each}
+	</div>
+{/if}
+
+{#if shared.length > 0}
+	<h2 class="section-title">Shared with you</h2>
+	<div class="list">
+		{#each shared as cal (cal.owner + '/' + cal.id)}
+			<div class="card item">
+				<span class="dot" style="background:{cal.color ?? 'var(--accent)'}"></span>
+				<div class="meta">
+					<strong>{cal.display_name}</strong>
+					<span class="muted small">from @{cal.owner} · {cal.url}</span>
+				</div>
+				<span class="badge">{ACCESS_LABEL[cal.access] ?? cal.access}</span>
 			</div>
 		{/each}
 	</div>
@@ -172,7 +239,82 @@
 	</Modal>
 {/if}
 
+{#if sharing}
+	<Modal title={`Share “${sharing.display_name}”`} onclose={() => (sharing = null)}>
+		{#if shareList.length === 0}
+			<p class="muted" style="margin-top:0">Not shared with anyone yet.</p>
+		{:else}
+			<div class="shares">
+				{#each shareList as s (s.grantee)}
+					<div class="share-row">
+						<div>
+							<strong>{s.grantee_name}</strong>
+							<span class="muted small">@{s.grantee} · {ACCESS_LABEL[s.access] ?? s.access}</span>
+						</div>
+						<button class="btn sm danger" onclick={() => removeShare(s.grantee)}>Remove</button>
+					</div>
+				{/each}
+			</div>
+		{/if}
+
+		<form class="add-share" onsubmit={addShare}>
+			<select class="input" bind:value={shareGrantee}>
+				<option value="" disabled>Choose a person…</option>
+				{#each users as u (u.id)}
+					<option value={u.id}>{u.display_name} (@{u.id})</option>
+				{/each}
+			</select>
+			<select class="input access" bind:value={shareAccess}>
+				<option value="read-write">Can edit</option>
+				<option value="read">Can view</option>
+				<option value="freebusy">Free/busy only</option>
+			</select>
+			<button class="btn primary" type="submit" disabled={!shareGrantee}>Add</button>
+		</form>
+	</Modal>
+{/if}
+
 <style>
+	.section-title {
+		font-size: 15px;
+		color: var(--muted);
+		font-weight: 600;
+		margin: 30px 0 12px;
+	}
+	.badge {
+		font-size: 12px;
+		font-weight: 600;
+		color: var(--accent);
+		background: color-mix(in srgb, var(--accent) 14%, transparent);
+		padding: 4px 10px;
+		border-radius: 999px;
+		white-space: nowrap;
+	}
+	.shares {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+		margin-bottom: 16px;
+	}
+	.share-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 10px;
+	}
+	.share-row > div {
+		display: flex;
+		flex-direction: column;
+	}
+	.add-share {
+		display: flex;
+		gap: 8px;
+		border-top: 1px solid var(--line);
+		padding-top: 14px;
+	}
+	.add-share .access {
+		max-width: 160px;
+	}
 	.head {
 		margin-bottom: 24px;
 		align-items: flex-end;

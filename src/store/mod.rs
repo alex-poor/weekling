@@ -210,6 +210,17 @@ impl Store {
         Ok(())
     }
 
+    /// All users as (id, display_name) — for the share picker.
+    pub fn list_users(&self) -> Result<Vec<(String, String)>> {
+        let conn = self.conn.lock().expect("poisoned");
+        let mut stmt = conn
+            .prepare("SELECT id, display_name FROM principals WHERE kind = 'user' ORDER BY id")?;
+        let rows = stmt
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
     /// Resolve a `mailto:` address to a principal id.
     pub fn principal_by_email(&self, email: &str) -> Result<Option<String>> {
         let conn = self.conn.lock().expect("poisoned");

@@ -7,7 +7,7 @@
 use axum::extract::{Path, Request, State};
 use axum::http::{HeaderMap, Method, StatusCode, header};
 use axum::middleware::Next;
-use axum::response::{IntoResponse, Response};
+use axum::response::{AppendHeaders, IntoResponse, Response};
 use axum::routing::{delete, get, patch, post};
 use axum::{Extension, Json, Router, middleware};
 use serde::Deserialize;
@@ -15,7 +15,7 @@ use serde_json::{Value, json};
 
 use crate::auth::{hash_secret, verify_secret};
 use crate::http::AppState;
-use crate::store::{Calendar, CredentialInfo, Principal};
+use crate::store::{Access, Calendar, CredentialInfo, Principal};
 use crate::util;
 
 /// Session length: 14 days.
@@ -37,6 +37,13 @@ pub fn router(state: AppState) -> Router<AppState> {
         )
         .route("/api/tokens", get(list_tokens).post(create_token))
         .route("/api/tokens/{id}", delete(delete_token))
+        .route("/api/principals", get(list_principals))
+        .route("/api/shared", get(shared_with_me))
+        .route(
+            "/api/calendars/{id}/shares",
+            get(list_shares).post(add_share),
+        )
+        .route("/api/calendars/{id}/shares/{grantee}", delete(remove_share))
         .layer(middleware::from_fn_with_state(state, require_session));
 
     Router::new()
@@ -51,16 +58,17 @@ async fn auth_info(State(state): State<AppState>) -> Response {
 }
 
 /// Create a session and return the two Set-Cookie headers (session + CSRF).
-/// Shared by password login and OIDC callback.
+/// Shared by password login and OIDC callback. `AppendHeaders` emits both
+/// Set-Cookie headers — a plain array would collapse them to the last one.
 pub(crate) fn issue_session(
     store: &crate::store::Store,
     principal_id: &str,
-) -> anyhow::Result<[(header::HeaderName, String); 2]> {
+) -> anyhow::Result<AppendHeaders<[(header::HeaderName, String); 2]>> {
     let sid = util::new_secret();
     let csrf = util::new_secret();
     store.create_session(&sid, principal_id, &csrf, SESSION_HOURS)?;
     let max_age = SESSION_HOURS * 3600;
-    Ok([
+    Ok(AppendHeaders([
         (
             header::SET_COOKIE,
             format!("{COOKIE}={sid}; HttpOnly; SameSite=Lax; Path=/; Max-Age={max_age}"),
@@ -69,7 +77,7 @@ pub(crate) fn issue_session(
             header::SET_COOKIE,
             format!("wk_csrf={csrf}; SameSite=Lax; Path=/; Max-Age={max_age}"),
         ),
-    ])
+    ]))
 }
 
 // ---- auth ---------------------------------------------------------------
@@ -115,10 +123,10 @@ async fn logout(State(state): State<AppState>, headers: HeaderMap) -> Response {
     let clear_csrf = "wk_csrf=; SameSite=Lax; Path=/; Max-Age=0".to_string();
     (
         StatusCode::NO_CONTENT,
-        [
+        AppendHeaders([
             (header::SET_COOKIE, clear),
             (header::SET_COOKIE, clear_csrf),
-        ],
+        ]),
     )
         .into_response()
 }
@@ -307,6 +315,123 @@ async fn delete_token(
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => not_found(),
         Err(_) => server_error(),
+    }
+}
+
+// ---- sharing ------------------------------------------------------------
+
+async fn list_principals(
+    State(state): State<AppState>,
+    Extension(SessionUser(_p)): Extension<SessionUser>,
+) -> Response {
+    match state.store.list_users() {
+        Ok(users) => Json(
+            users
+                .iter()
+                .map(|(id, dn)| json!({ "id": id, "display_name": dn }))
+                .collect::<Vec<_>>(),
+        )
+        .into_response(),
+        Err(_) => server_error(),
+    }
+}
+
+async fn shared_with_me(
+    State(state): State<AppState>,
+    Extension(SessionUser(p)): Extension<SessionUser>,
+) -> Response {
+    match state.store.shared_with(&p.id) {
+        Ok(list) => Json(
+            list.iter()
+                .map(|(c, acc)| {
+                    json!({
+                        "id": c.id,
+                        "owner": c.owner_id,
+                        "display_name": c.display_name,
+                        "color": c.color,
+                        "components": c.components.split(',').collect::<Vec<_>>(),
+                        "access": access_str(*acc),
+                        "url": format!("/dav/calendars/{}/{}/", c.owner_id, c.id),
+                    })
+                })
+                .collect::<Vec<_>>(),
+        )
+        .into_response(),
+        Err(_) => server_error(),
+    }
+}
+
+async fn list_shares(
+    State(state): State<AppState>,
+    Extension(SessionUser(p)): Extension<SessionUser>,
+    Path(id): Path<String>,
+) -> Response {
+    match state.store.list_shares(&p.id, &id) {
+        Ok(shares) => {
+            let out: Vec<_> = shares
+                .iter()
+                .map(|(g, a)| {
+                    let name = state
+                        .store
+                        .get_principal(g)
+                        .ok()
+                        .flatten()
+                        .map(|pr| pr.display_name)
+                        .unwrap_or_else(|| g.clone());
+                    json!({ "grantee": g, "grantee_name": name, "access": a })
+                })
+                .collect();
+            Json(out).into_response()
+        }
+        Err(_) => server_error(),
+    }
+}
+
+#[derive(Deserialize)]
+struct NewShare {
+    grantee: String,
+    #[serde(default)]
+    access: Option<String>,
+}
+
+async fn add_share(
+    State(state): State<AppState>,
+    Extension(SessionUser(p)): Extension<SessionUser>,
+    Path(id): Path<String>,
+    Json(req): Json<NewShare>,
+) -> Response {
+    let access = req.access.unwrap_or_else(|| "read".into());
+    if !matches!(access.as_str(), "read" | "read-write" | "freebusy") {
+        return bad_request("access must be read, read-write, or freebusy");
+    }
+    match state
+        .store
+        .share_calendar(&p.id, &id, &req.grantee, &access)
+    {
+        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        Ok(false) => bad_request("could not share — check the calendar and that the user exists"),
+        Err(_) => server_error(),
+    }
+}
+
+async fn remove_share(
+    State(state): State<AppState>,
+    Extension(SessionUser(p)): Extension<SessionUser>,
+    Path((id, grantee)): Path<(String, String)>,
+) -> Response {
+    match state.store.unshare(&p.id, &id, &grantee) {
+        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        Ok(false) => not_found(),
+        Err(_) => server_error(),
+    }
+}
+
+fn access_str(a: Access) -> &'static str {
+    match a {
+        Access::Owner => "owner",
+        Access::ReadWrite => "read-write",
+        Access::Read => "read",
+        Access::FreeBusy => "freebusy",
     }
 }
 
