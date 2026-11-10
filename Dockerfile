@@ -1,12 +1,31 @@
 # syntax=docker/dockerfile:1
 
-# ---- build ----
-FROM rust:1-slim AS builder
-WORKDIR /src
+# ---- chef (shared base) ----
+# cargo-chef lets us cache a dependency-only compile as its own layer, so a
+# source-only change no longer rebuilds every crate — a big win for the
+# emulated arm64 build. This base layer is itself cached until the Rust image
+# or cargo-chef version changes.
+FROM rust:1-slim AS chef
 # Build deps for rusqlite's bundled SQLite (C compiler).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
+RUN cargo install cargo-chef --locked --version 0.1.71
+WORKDIR /src
+
+# ---- plan ----
+# Distil the dependency graph into recipe.json. This changes only when the
+# manifests change, so the cook step below stays cached across source edits.
+FROM chef AS planner
+COPY . .
+RUN cargo chef prepare --recipe-path recipe.json
+
+# ---- build ----
+FROM chef AS builder
+COPY --from=planner /src/recipe.json recipe.json
+# Compile dependencies only — cached unless recipe.json (i.e. a manifest) changes.
+RUN cargo chef cook --release --recipe-path recipe.json
+# Now the source; only our own crate recompiles on a source-only change.
 COPY . .
 RUN cargo build --release --locked
 # Pre-create the data dir so it can be copied in with nonroot ownership.
