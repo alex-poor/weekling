@@ -173,8 +173,8 @@ async fn dav_entry(
         "PROPFIND" => propfind::handle(&state, &principal, &resource, &headers, &body, access),
         "REPORT" => report::handle(&state, &principal, &resource, &body, access),
         "GET" | "HEAD" if access.can_read() => get(&state, &resource, method == Method::HEAD),
-        "PUT" if access.can_write() => put(&state, &resource, &headers, &body),
-        "DELETE" if access.can_write() => delete(&state, &resource, &headers),
+        "PUT" if access.can_write() => put(&state, &principal, &resource, &headers, &body),
+        "DELETE" if access.can_write() => delete(&state, &principal, &resource, &headers),
         "PROPPATCH" if access.can_write() => proppatch(&state, &resource, &body),
         // WebDAV-Push registration: subscribers must be able to read the collection.
         "POST" if access.can_read() => push_register(&state, &principal, &resource, &body),
@@ -221,7 +221,13 @@ fn get(state: &AppState, resource: &Resource, head: bool) -> Response {
     }
 }
 
-fn put(state: &AppState, resource: &Resource, headers: &HeaderMap, body: &Bytes) -> Response {
+fn put(
+    state: &AppState,
+    principal: &crate::store::Principal,
+    resource: &Resource,
+    headers: &HeaderMap,
+    body: &Bytes,
+) -> Response {
     let Resource::Object { cal, name, .. } = resource else {
         return (StatusCode::METHOD_NOT_ALLOWED, "cannot PUT here\n").into_response();
     };
@@ -229,11 +235,11 @@ fn put(state: &AppState, resource: &Resource, headers: &HeaderMap, body: &Bytes)
     let Some(user) = resource_user(resource) else {
         return not_found();
     };
-    match state.store.get_calendar(user, cal) {
-        Ok(Some(_)) => {}
+    let cal_row = match state.store.get_calendar(user, cal) {
+        Ok(Some(c)) => c,
         Ok(None) => return not_found(),
         Err(e) => return server_error(e),
-    }
+    };
 
     let Ok(text) = std::str::from_utf8(body) else {
         return (StatusCode::BAD_REQUEST, "body is not UTF-8\n").into_response();
@@ -281,6 +287,10 @@ fn put(state: &AppState, resource: &Resource, headers: &HeaderMap, body: &Bytes)
         Err(e) => return server_error(e),
     };
     crate::push::notify(state, cal, seq);
+    // Implicit scheduling for events written to a normal calendar (not the inbox).
+    if cal_row.role.is_none() {
+        crate::schedule::on_put(state, &principal.id, text);
+    }
 
     let code = if existing.is_some() {
         StatusCode::NO_CONTENT
@@ -290,24 +300,36 @@ fn put(state: &AppState, resource: &Resource, headers: &HeaderMap, body: &Bytes)
     (code, [(header::ETAG, etag)]).into_response()
 }
 
-fn delete(state: &AppState, resource: &Resource, headers: &HeaderMap) -> Response {
-    let Resource::Object { cal, name, .. } = resource else {
+fn delete(
+    state: &AppState,
+    principal: &crate::store::Principal,
+    resource: &Resource,
+    headers: &HeaderMap,
+) -> Response {
+    let Resource::Object { cal, name, user } = resource else {
         return (StatusCode::METHOD_NOT_ALLOWED, "cannot DELETE here\n").into_response();
     };
+    // Capture the object (for an If-Match check and for a scheduling CANCEL).
+    let existing = match state.store.get_object(cal, name) {
+        Ok(v) => v,
+        Err(e) => return server_error(e),
+    };
     if let Some(want) = header_value(headers, "if-match") {
-        match state.store.get_object(cal, name) {
-            Ok(Some(obj)) if etag_matches(&want, &obj.etag) => {}
-            Ok(Some(_)) => {
-                return (StatusCode::PRECONDITION_FAILED, "etag mismatch\n").into_response();
-            }
-            Ok(None) => return not_found(),
-            Err(e) => return server_error(e),
+        match &existing {
+            Some(obj) if etag_matches(&want, &obj.etag) => {}
+            Some(_) => return (StatusCode::PRECONDITION_FAILED, "etag mismatch\n").into_response(),
+            None => return not_found(),
         }
     }
+    let is_inbox = matches!(state.store.get_calendar(user, cal), Ok(Some(c)) if c.role.is_some());
+
     match state.store.delete_object(cal, name) {
         Ok(true) => {
             if let Ok(seq) = state.store.collection_sync_token(cal) {
                 crate::push::notify(state, cal, seq);
+            }
+            if !is_inbox && let Some(obj) = existing {
+                crate::schedule::on_delete(state, &principal.id, &obj.ical_raw);
             }
             StatusCode::NO_CONTENT.into_response()
         }

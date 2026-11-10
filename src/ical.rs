@@ -14,6 +14,28 @@ pub struct IcalFields {
     pub dtstart: Option<String>, // normalized 'YYYYMMDDTHHMMSS' (Z dropped)
     pub dtend: Option<String>,
     pub has_rrule: bool,
+    pub organizer: Option<String>, // calendar-user-address, e.g. "mailto:a@x"
+    pub attendees: Vec<Attendee>,
+}
+
+/// An ATTENDEE with the participation status we care about for replies.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct Attendee {
+    pub value: String, // calendar-user-address
+    pub partstat: Option<String>,
+}
+
+/// Extract an ATTENDEE's value and PARTSTAT from its content line.
+fn attendee_from_line(line: &str) -> Attendee {
+    let colon = line.find(':').unwrap_or(line.len());
+    let (prefix, value) = line.split_at(colon);
+    let value = value.strip_prefix(':').unwrap_or("").to_string();
+    let partstat = prefix.split(';').find_map(|p| {
+        p.strip_prefix("PARTSTAT=")
+            .or_else(|| p.strip_prefix("partstat="))
+            .map(|v| v.to_ascii_uppercase())
+    });
+    Attendee { value, partstat }
 }
 
 /// Unfold RFC 5545 line continuations (a line beginning with SPACE or TAB is a
@@ -95,6 +117,8 @@ pub fn extract(ical: &str) -> IcalFields {
             "DTSTART" => f.dtstart = normalize_dt(value),
             "DTEND" => f.dtend = normalize_dt(value),
             "RRULE" => f.has_rrule = true,
+            "ORGANIZER" => f.organizer = Some(value.to_string()),
+            "ATTENDEE" => f.attendees.push(attendee_from_line(&line)),
             _ => {}
         }
     }
@@ -140,6 +164,18 @@ mod tests {
         assert_eq!(f.status.as_deref(), Some("CONFIRMED"));
         assert_eq!(f.dtstart.as_deref(), Some("20260115T090000")); // not the VALARM's
         assert!(!f.has_rrule);
+    }
+
+    #[test]
+    fn extracts_organizer_and_attendees() {
+        let ics = "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:m1\r\nORGANIZER:mailto:a@x\r\nATTENDEE;PARTSTAT=ACCEPTED;CN=Bob:mailto:b@x\r\nATTENDEE:mailto:c@x\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+        let f = extract(ics);
+        assert_eq!(f.organizer.as_deref(), Some("mailto:a@x"));
+        assert_eq!(f.attendees.len(), 2);
+        assert_eq!(f.attendees[0].value, "mailto:b@x");
+        assert_eq!(f.attendees[0].partstat.as_deref(), Some("ACCEPTED"));
+        assert_eq!(f.attendees[1].value, "mailto:c@x");
+        assert_eq!(f.attendees[1].partstat, None);
     }
 
     #[test]

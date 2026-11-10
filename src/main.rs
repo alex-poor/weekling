@@ -12,6 +12,7 @@ mod http;
 mod ical;
 mod oidc;
 mod push;
+mod schedule;
 mod serve;
 mod store;
 mod util;

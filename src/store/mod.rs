@@ -14,7 +14,14 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (1, include_str!("migrations/0001_init.sql")),
     (2, include_str!("migrations/0002_sharing.sql")),
     (3, include_str!("migrations/0003_push.sql")),
+    (4, include_str!("migrations/0004_scheduling.sql")),
 ];
+
+/// Collection id of a principal's scheduling inbox (globally unique; the URL is
+/// advertised via schedule-inbox-URL so the literal segment doesn't matter).
+pub fn inbox_id(user: &str) -> String {
+    format!("sched-inbox-{user}")
+}
 
 // ---- domain types -------------------------------------------------------
 
@@ -30,13 +37,14 @@ pub struct Principal {
 #[derive(Debug, Clone)]
 pub struct Calendar {
     pub id: String,
-    #[allow(dead_code)] // used once sharing/ACLs land (M3)
     pub owner_id: String,
     pub display_name: String,
     pub description: Option<String>,
     pub color: Option<String>,
     pub components: String,
     pub sync_token: i64,
+    /// `None` for a normal calendar, `Some("inbox")` for the scheduling inbox.
+    pub role: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -178,12 +186,50 @@ impl Store {
 
     // ---- principals ------------------------------------------------------
 
-    pub fn create_user(&self, id: &str, display_name: &str, is_admin: bool) -> Result<()> {
+    pub fn create_user(
+        &self,
+        id: &str,
+        display_name: &str,
+        email: Option<&str>,
+        is_admin: bool,
+    ) -> Result<()> {
+        let mut conn = self.conn.lock().expect("poisoned");
+        let tx = conn.transaction()?;
+        tx.execute(
+            "INSERT INTO principals (id, kind, display_name, email, is_admin)
+             VALUES (?1, 'user', ?2, ?3, ?4)",
+            params![id, display_name, email, is_admin as i64],
+        )?;
+        // Every user gets a scheduling inbox (RFC 6638).
+        tx.execute(
+            "INSERT INTO collections (id, owner_id, display_name, components, role)
+             VALUES (?1, ?2, 'Inbox', 'VEVENT', 'inbox')",
+            params![inbox_id(id), id],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Resolve a `mailto:` address to a principal id.
+    pub fn principal_by_email(&self, email: &str) -> Result<Option<String>> {
+        let conn = self.conn.lock().expect("poisoned");
+        let id = conn
+            .query_row(
+                "SELECT id FROM principals WHERE email = ?1 COLLATE NOCASE",
+                [email],
+                |r| r.get(0),
+            )
+            .optional()?;
+        Ok(id)
+    }
+
+    /// Ensure a principal has a scheduling inbox (for users created pre-M5).
+    pub fn ensure_inbox(&self, owner_id: &str) -> Result<()> {
         let conn = self.conn.lock().expect("poisoned");
         conn.execute(
-            "INSERT INTO principals (id, kind, display_name, is_admin)
-             VALUES (?1, 'user', ?2, ?3)",
-            params![id, display_name, is_admin as i64],
+            "INSERT OR IGNORE INTO collections (id, owner_id, display_name, components, role)
+             VALUES (?1, ?2, 'Inbox', 'VEVENT', 'inbox')",
+            params![inbox_id(owner_id), owner_id],
         )?;
         Ok(())
     }
@@ -369,23 +415,21 @@ impl Store {
 
     pub fn get_calendar(&self, owner_id: &str, id: &str) -> Result<Option<Calendar>> {
         let conn = self.conn.lock().expect("poisoned");
+        let sql = format!("SELECT {CAL_COLS} FROM collections WHERE owner_id = ?1 AND id = ?2");
         let c = conn
-            .query_row(
-                "SELECT id, owner_id, display_name, description, color, components, sync_token
-                 FROM collections WHERE owner_id = ?1 AND id = ?2",
-                params![owner_id, id],
-                map_calendar,
-            )
+            .query_row(&sql, params![owner_id, id], map_calendar)
             .optional()?;
         Ok(c)
     }
 
+    /// Normal calendars (excludes the scheduling inbox).
     pub fn list_calendars(&self, owner_id: &str) -> Result<Vec<Calendar>> {
         let conn = self.conn.lock().expect("poisoned");
-        let mut stmt = conn.prepare(
-            "SELECT id, owner_id, display_name, description, color, components, sync_token
-             FROM collections WHERE owner_id = ?1 ORDER BY display_name",
-        )?;
+        let sql = format!(
+            "SELECT {CAL_COLS} FROM collections
+             WHERE owner_id = ?1 AND role IS NULL ORDER BY display_name"
+        );
+        let mut stmt = conn.prepare(&sql)?;
         let rows = stmt
             .query_map([owner_id], map_calendar)?
             .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -516,7 +560,7 @@ impl Store {
         let conn = self.conn.lock().expect("poisoned");
         let mut stmt = conn.prepare(
             "SELECT c.id, c.owner_id, c.display_name, c.description, c.color, c.components,
-                    c.sync_token, s.access
+                    c.sync_token, c.role, s.access
              FROM shares s JOIN collections c ON c.id = s.collection_id
              WHERE s.grantee_id = ?1 ORDER BY c.display_name",
         )?;
@@ -530,8 +574,9 @@ impl Store {
                     color: r.get(4)?,
                     components: r.get(5)?,
                     sync_token: r.get(6)?,
+                    role: None,
                 };
-                let access = Access::from_share(&r.get::<_, String>(7)?).unwrap_or(Access::Read);
+                let access = Access::from_share(&r.get::<_, String>(8)?).unwrap_or(Access::Read);
                 Ok((cal, access))
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -829,6 +874,9 @@ fn bump_seq(tx: &rusqlite::Transaction, cal_id: &str) -> rusqlite::Result<i64> {
     )
 }
 
+const CAL_COLS: &str =
+    "id, owner_id, display_name, description, color, components, sync_token, role";
+
 fn map_calendar(r: &rusqlite::Row) -> rusqlite::Result<Calendar> {
     Ok(Calendar {
         id: r.get(0)?,
@@ -838,6 +886,7 @@ fn map_calendar(r: &rusqlite::Row) -> rusqlite::Result<Calendar> {
         color: r.get(4)?,
         components: r.get(5)?,
         sync_token: r.get(6)?,
+        role: r.get(7)?,
     })
 }
 
@@ -874,7 +923,7 @@ mod tests {
     #[test]
     fn calendar_object_lifecycle_and_sync() {
         let s = mem_store();
-        s.create_user("alice", "Alice", true).unwrap();
+        s.create_user("alice", "Alice", None, true).unwrap();
         s.create_calendar("cal1", "alice", "Home", "VEVENT", Some("#5b8def"), None)
             .unwrap();
 
@@ -909,7 +958,7 @@ mod tests {
     #[test]
     fn range_query_filters_by_time() {
         let s = mem_store();
-        s.create_user("bob", "Bob", false).unwrap();
+        s.create_user("bob", "Bob", None, false).unwrap();
         s.create_calendar("c", "bob", "Cal", "VEVENT", None, None)
             .unwrap();
         let mk = |uid, start, end| NewObject {
@@ -939,8 +988,8 @@ mod tests {
     #[test]
     fn sharing_grants_access() {
         let s = mem_store();
-        s.create_user("alice", "Alice", false).unwrap();
-        s.create_user("bob", "Bob", false).unwrap();
+        s.create_user("alice", "Alice", None, false).unwrap();
+        s.create_user("bob", "Bob", None, false).unwrap();
         s.create_calendar("home", "alice", "Home", "VEVENT", None, None)
             .unwrap();
 

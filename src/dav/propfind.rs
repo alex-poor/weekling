@@ -175,6 +175,25 @@ fn principal_response(principal: &Principal, user: &str, req: &PropReq) -> Strin
         s.push_str("</cal:calendar-user-address-set>");
         s
     });
+    // RFC 6638 scheduling discovery.
+    let inbox = format!("/dav/calendars/{user}/{}/", crate::store::inbox_id(user));
+    let outbox = format!("/dav/calendars/{user}/outbox/");
+    let home2 = home.clone();
+    p.offer("schedule-inbox-url", move || {
+        format!(
+            "<cal:schedule-inbox-URL><d:href>{}</d:href></cal:schedule-inbox-URL>",
+            escape(&inbox)
+        )
+    });
+    p.offer("schedule-outbox-url", move || {
+        format!(
+            "<cal:schedule-outbox-URL><d:href>{}</d:href></cal:schedule-outbox-URL>",
+            escape(&outbox)
+        )
+    });
+    p.offer("schedule-default-calendar-url", move || {
+        format!("<cal:schedule-default-calendar-URL><d:href>{}</d:href></cal:schedule-default-calendar-URL>", escape(&home2))
+    });
     response(&href, &p.render_propstats())
 }
 
@@ -210,9 +229,14 @@ fn calendar_response(
 ) -> String {
     let href = calendar_href(user, &cal.id);
     let cup = principal_href(&principal.id);
+    let is_inbox = cal.role.as_deref() == Some("inbox");
     let mut p = PropSet::new(req.clone());
-    p.offer("resourcetype", || {
-        "<d:resourcetype><d:collection/><cal:calendar/></d:resourcetype>".into()
+    p.offer("resourcetype", move || {
+        if is_inbox {
+            "<d:resourcetype><d:collection/><cal:schedule-inbox/></d:resourcetype>".into()
+        } else {
+            "<d:resourcetype><d:collection/><cal:calendar/></d:resourcetype>".into()
+        }
     });
 
     // WebDAV-Push advertisement (draft-bitfire-webdav-push).

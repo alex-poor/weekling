@@ -9,7 +9,7 @@ Linux-only, written in Rust, built for homes, families, and small businesses.
 > sync-collection). Auth is argon2id app passwords over HTTP Basic. The management UI
 > is still a placeholder (M2). Since then: calendar sharing + tasks + free-busy (M3),
 > WebDAV-Push with encrypted Web Push delivery, built-in TLS + Let's Encrypt (ACME),
-> and OIDC single sign-on (M4).
+> OIDC single sign-on (M4), and RFC 6638 scheduling between local users (M5).
 > See [`DESIGN.md`](DESIGN.md) for the full design and roadmap.
 
 ## Set up a calendar (admin CLI)

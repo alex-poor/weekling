@@ -11,7 +11,7 @@ weekling — self-hosted calendar server
 
 USAGE:
     weekling [serve]                         Run the server (default)
-    weekling user add <name> [--display D] [--admin]
+    weekling user add <name> [--display D] [--email E] [--admin]
     weekling user passwd <name>              Set the account password (reads stdin)
     weekling token add <user> [--label L]    Create an app password (prints it once)
     weekling calendar add <user> <title> [--id ID] [--color #HEX]
@@ -51,8 +51,9 @@ fn user_cmd(store: &Store, args: &[String]) -> Result<()> {
             let rest = &args[1..];
             let name = positional(rest, 0).ok_or_else(|| err("user add <name>"))?;
             let display = flag(rest, "--display").unwrap_or_else(|| name.clone());
+            let email = flag(rest, "--email");
             let admin = has_flag(rest, "--admin");
-            store.create_user(&name, &display, admin)?;
+            store.create_user(&name, &display, email.as_deref(), admin)?;
             println!(
                 "created user '{name}'{}",
                 if admin { " (admin)" } else { "" }
