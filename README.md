@@ -60,11 +60,21 @@ docker compose up --build
 # open http://localhost:5232
 ```
 
-Or run the prebuilt multi-arch image straight from GHCR:
+Or run the prebuilt multi-arch image straight from GHCR — set the admin on first
+run and that's it (no shell, no exec), then open the UI and log in:
 
 ```sh
-docker run -p 5232:5232 -v weekling:/var/lib/weekling ghcr.io/alex-poor/weekling:latest
+docker run -p 5232:5232 -v weekling:/var/lib/weekling \
+  -e WEEKLING_ADMIN_USERNAME=alice \
+  -e WEEKLING_ADMIN_PASSWORD=a-strong-passphrase \
+  ghcr.io/alex-poor/weekling:latest
+# open http://localhost:5232 and sign in as alice
 ```
+
+On first start (no users yet) Weekling creates that admin plus a starter **Home**
+calendar. It only runs once — it's ignored after a user exists. For secrets, use
+`WEEKLING_ADMIN_PASSWORD_FILE=/run/secrets/...` instead of `WEEKLING_ADMIN_PASSWORD`.
+Create per-client **app passwords** from the UI once you're in.
 
 **From source:**
 
@@ -73,14 +83,7 @@ cargo run
 # open http://localhost:5232  ·  probe: http://localhost:5232/healthz
 ```
 
-Then create your first user and calendar:
-
-```sh
-weekling user add alice --display "Alice" --email alice@example.com
-echo "a-strong-passphrase" | weekling user passwd alice   # UI login
-weekling token add alice                                   # app password — copy it once
-weekling calendar add alice "Home" --id home --color "#3b5bff"
-```
+Prefer the CLI (or need more users/calendars)? See [Admin CLI](#-admin-cli) below.
 
 ## 🔌 Connect a device
 

@@ -6,6 +6,13 @@ All notable changes to Weekling are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- **First-run admin bootstrap** — on a fresh install with no users, create the admin from
+  `WEEKLING_ADMIN_USERNAME` + `WEEKLING_ADMIN_PASSWORD` (or `WEEKLING_ADMIN_PASSWORD_FILE`),
+  plus optional `WEEKLING_ADMIN_DISPLAY` / `WEEKLING_ADMIN_EMAIL`, and a starter calendar. Makes
+  `docker run` / Compose a complete setup — no `docker exec` step. Idempotent.
+
 ## [0.1.0] — 2026-11-10
 
 The first tagged release. 🏋️

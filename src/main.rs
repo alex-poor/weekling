@@ -5,6 +5,7 @@
 
 mod api;
 mod auth;
+mod bootstrap;
 mod cli;
 mod config;
 mod dav;
@@ -47,6 +48,9 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
     tracing::info!(db = %db_path.display(), "store ready");
+
+    // First-run: create the admin from the environment if there are no users yet.
+    bootstrap::run(&store).context("first-run bootstrap")?;
 
     let addr: SocketAddr = config
         .bind
