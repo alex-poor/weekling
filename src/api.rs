@@ -297,7 +297,9 @@ async fn mint_token(
     let tclone = token.clone();
     let hash = tokio::task::spawn_blocking(move || hash_secret(&tclone)).await??;
     let id = util::new_id();
-    state.store.add_app_password(&id, principal_id, label, &hash)?;
+    state
+        .store
+        .add_app_password(&id, principal_id, label, &hash)?;
     Ok((id, token))
 }
 
@@ -701,7 +703,8 @@ async fn set_user_admin(
     }
     // Don't let the last remaining admin be demoted — that would lock the UI out.
     if !req.is_admin {
-        let target_is_admin = matches!(state.store.get_principal(&id), Ok(Some(ref t)) if t.is_admin);
+        let target_is_admin =
+            matches!(state.store.get_principal(&id), Ok(Some(ref t)) if t.is_admin);
         if target_is_admin && matches!(state.store.admin_count(), Ok(n) if n <= 1) {
             return bad_request("can't remove the last admin");
         }
@@ -745,9 +748,11 @@ async fn mint_user_token(
         Err(_) => return server_error(),
     }
     match mint_token(&state, &id, "app password").await {
-        Ok((tid, token)) => {
-            (StatusCode::CREATED, Json(json!({ "id": tid, "token": token }))).into_response()
-        }
+        Ok((tid, token)) => (
+            StatusCode::CREATED,
+            Json(json!({ "id": tid, "token": token })),
+        )
+            .into_response(),
         Err(_) => server_error(),
     }
 }
