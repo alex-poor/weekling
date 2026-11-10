@@ -13,7 +13,8 @@ pub const NS: &str = concat!(
     "xmlns:d=\"DAV:\" ",
     "xmlns:cal=\"urn:ietf:params:xml:ns:caldav\" ",
     "xmlns:cs=\"http://calendarserver.org/ns/\" ",
-    "xmlns:ical=\"http://apple.com/ns/ical/\""
+    "xmlns:ical=\"http://apple.com/ns/ical/\" ",
+    "xmlns:P=\"https://bitfire.at/webdav-push\""
 );
 
 /// Which properties a PROPFIND/REPORT asked for.
@@ -266,6 +267,43 @@ pub fn parse_mkcalendar(body: &[u8]) -> MkCalProps {
         props.components = Some(comps.join(","));
     }
     props
+}
+
+/// A parsed WebDAV-Push `push-register` body (the Web Push fields we store).
+#[derive(Default)]
+pub struct PushRegistration {
+    pub push_resource: String,
+    pub p256dh: String,
+    pub auth_secret: String,
+}
+
+/// Extract the Web Push subscription details from a `push-register` body.
+pub fn parse_push_register(body: &[u8]) -> PushRegistration {
+    let mut reg = PushRegistration::default();
+    let mut reader = Reader::from_reader(body);
+    reader.config_mut().trim_text(true);
+    let mut cur = String::new();
+    loop {
+        match reader.read_event() {
+            Ok(Event::Start(e)) => cur = local_name(&e),
+            Ok(Event::Text(t)) => {
+                let txt = t
+                    .xml10_content()
+                    .map(|v| v.into_owned())
+                    .unwrap_or_default();
+                match cur.as_str() {
+                    "push-resource" => reg.push_resource = txt,
+                    "subscription-public-key" => reg.p256dh = txt,
+                    "auth-secret" => reg.auth_secret = txt,
+                    _ => {}
+                }
+            }
+            Ok(Event::End(_)) => cur.clear(),
+            Ok(Event::Eof) | Err(_) => break,
+            _ => {}
+        }
+    }
+    reg
 }
 
 #[cfg(test)]

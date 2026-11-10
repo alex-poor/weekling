@@ -40,7 +40,13 @@ pub fn handle(
                 match state.store.list_calendars(user) {
                     Ok(cals) => {
                         for c in cals {
-                            out.push_str(&calendar_response(principal, user, &c, &req));
+                            out.push_str(&calendar_response(
+                                principal,
+                                user,
+                                &c,
+                                &req,
+                                &state.push.vapid_public_b64,
+                            ));
                         }
                     }
                     Err(e) => return super::server_error(e),
@@ -50,7 +56,13 @@ pub fn handle(
                     Ok(shared) => {
                         for (c, _acc) in shared {
                             let owner = c.owner_id.clone();
-                            out.push_str(&calendar_response(principal, &owner, &c, &req));
+                            out.push_str(&calendar_response(
+                                principal,
+                                &owner,
+                                &c,
+                                &req,
+                                &state.push.vapid_public_b64,
+                            ));
                         }
                     }
                     Err(e) => return super::server_error(e),
@@ -64,7 +76,13 @@ pub fn handle(
                 Ok(None) => return (StatusCode::NOT_FOUND, "no such calendar\n").into_response(),
                 Err(e) => return super::server_error(e),
             };
-            let mut out = calendar_response(principal, user, &calendar, &req);
+            let mut out = calendar_response(
+                principal,
+                user,
+                &calendar,
+                &req,
+                &state.push.vapid_public_b64,
+            );
             // Free-busy grantees see the calendar, but not its objects.
             if d >= 1 && access.can_read() {
                 match state.store.list_objects(cal, None) {
@@ -83,7 +101,9 @@ pub fn handle(
             Ok(None) => return (StatusCode::NOT_FOUND, "no such object\n").into_response(),
             Err(e) => return super::server_error(e),
         },
-        Resource::Unknown => return (StatusCode::NOT_FOUND, "not found\n").into_response(),
+        Resource::PushSub { .. } | Resource::Unknown => {
+            return (StatusCode::NOT_FOUND, "not found\n").into_response();
+        }
     };
 
     multistatus_response(&multistatus(&responses))
@@ -181,12 +201,36 @@ fn home_response(principal: &Principal, user: &str, req: &PropReq) -> String {
     response(&href, &p.render_propstats())
 }
 
-fn calendar_response(principal: &Principal, user: &str, cal: &Calendar, req: &PropReq) -> String {
+fn calendar_response(
+    principal: &Principal,
+    user: &str,
+    cal: &Calendar,
+    req: &PropReq,
+    vapid: &str,
+) -> String {
     let href = calendar_href(user, &cal.id);
     let cup = principal_href(&principal.id);
     let mut p = PropSet::new(req.clone());
     p.offer("resourcetype", || {
         "<d:resourcetype><d:collection/><cal:calendar/></d:resourcetype>".into()
+    });
+
+    // WebDAV-Push advertisement (draft-bitfire-webdav-push).
+    let vapid_key = vapid.to_string();
+    p.offer("transports", move || {
+        format!(
+            "<P:transports><P:web-push><P:vapid-public-key type=\"p256ecdsa\">{}</P:vapid-public-key></P:web-push></P:transports>",
+            escape(&vapid_key)
+        )
+    });
+    let topic = cal.id.clone();
+    p.offer("topic", move || {
+        format!("<P:topic>{}</P:topic>", escape(&topic))
+    });
+    p.offer("supported-triggers", || {
+        "<P:supported-triggers><P:content-update><d:depth>1</d:depth></P:content-update>\
+         <P:property-update><d:depth>0</d:depth></P:property-update></P:supported-triggers>"
+            .into()
     });
     let dn = cal.display_name.clone();
     p.offer("displayname", || {

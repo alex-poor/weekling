@@ -10,6 +10,7 @@ mod config;
 mod dav;
 mod http;
 mod ical;
+mod push;
 mod store;
 mod util;
 mod web;
@@ -48,9 +49,11 @@ async fn main() -> anyhow::Result<()> {
         .parse()
         .with_context(|| format!("invalid bind address {}", config.bind))?;
 
+    let push = push::Push::load_or_create(&config.data_dir).context("loading VAPID key")?;
     let state = AppState {
         config: Arc::new(config),
         store: Arc::new(store),
+        push: Arc::new(push),
     };
 
     let app = http::router(state);

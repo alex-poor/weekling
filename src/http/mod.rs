@@ -20,6 +20,7 @@ use crate::store::Store;
 pub struct AppState {
     pub config: Arc<Config>,
     pub store: Arc<Store>,
+    pub push: Arc<crate::push::Push>,
 }
 
 pub fn router(state: AppState) -> Router {

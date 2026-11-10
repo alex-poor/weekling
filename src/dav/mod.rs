@@ -39,6 +39,9 @@ pub enum Resource {
         cal: String,
         name: String,
     },
+    PushSub {
+        id: String,
+    },
     Unknown,
 }
 
@@ -46,6 +49,9 @@ pub fn parse_path(path: &str) -> Resource {
     let segs: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
     match segs.as_slice() {
         ["dav"] => Resource::Root,
+        ["dav", "push", id] => Resource::PushSub {
+            id: (*id).to_string(),
+        },
         ["dav", "principals", user] => Resource::Principal {
             user: (*user).to_string(),
         },
@@ -113,6 +119,26 @@ async fn dav_entry(
 ) -> Response {
     let resource = parse_path(uri.path());
 
+    // Push subscription resources (/dav/push/<id>): the owner may remove them.
+    if let Resource::PushSub { id } = &resource {
+        return match method.as_str() {
+            "OPTIONS" => options_response(),
+            "DELETE" => match state.store.subscription_owner(id) {
+                Ok(Some(owner)) if owner == principal.id => {
+                    match state.store.delete_subscription(id, &principal.id) {
+                        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+                        Ok(false) => not_found(),
+                        Err(e) => server_error(e),
+                    }
+                }
+                Ok(Some(_)) => forbidden(),
+                Ok(None) => not_found(),
+                Err(e) => server_error(e),
+            },
+            _ => (StatusCode::METHOD_NOT_ALLOWED, "method not allowed\n").into_response(),
+        };
+    }
+
     // MKCALENDAR creates a new (not-yet-existing) calendar: only in your own home.
     if method.as_str() == "MKCALENDAR" {
         return match &resource {
@@ -135,7 +161,7 @@ async fn dav_entry(
                 Err(e) => return server_error(e),
             }
         }
-        Resource::Unknown => None,
+        Resource::PushSub { .. } | Resource::Unknown => None, // PushSub handled above
     };
     let Some(access) = access else {
         // Don't distinguish "forbidden" from "absent" for another user's tree.
@@ -150,7 +176,9 @@ async fn dav_entry(
         "PUT" if access.can_write() => put(&state, &resource, &headers, &body),
         "DELETE" if access.can_write() => delete(&state, &resource, &headers),
         "PROPPATCH" if access.can_write() => proppatch(&state, &resource, &body),
-        "GET" | "HEAD" | "PUT" | "DELETE" | "PROPPATCH" => forbidden(),
+        // WebDAV-Push registration: subscribers must be able to read the collection.
+        "POST" if access.can_read() => push_register(&state, &principal, &resource, &body),
+        "GET" | "HEAD" | "PUT" | "DELETE" | "PROPPATCH" | "POST" => forbidden(),
         _ => (StatusCode::METHOD_NOT_ALLOWED, "method not allowed\n").into_response(),
     }
 }
@@ -161,11 +189,11 @@ fn options_response() -> Response {
         [
             (
                 header::ALLOW,
-                "OPTIONS, GET, HEAD, PUT, DELETE, PROPFIND, PROPPATCH, REPORT, MKCALENDAR",
+                "OPTIONS, GET, HEAD, POST, PUT, DELETE, PROPFIND, PROPPATCH, REPORT, MKCALENDAR",
             ),
             (
                 header::HeaderName::from_static("dav"),
-                "1, 3, calendar-access",
+                "1, 3, calendar-access, webdav-push",
             ),
         ],
     )
@@ -248,9 +276,11 @@ fn put(state: &AppState, resource: &Resource, headers: &HeaderMap, body: &Bytes)
         component: fields.component.as_deref(),
         has_rrule: fields.has_rrule,
     };
-    if let Err(e) = state.store.put_object(&new, &util::new_id()) {
-        return server_error(e);
-    }
+    let seq = match state.store.put_object(&new, &util::new_id()) {
+        Ok(seq) => seq,
+        Err(e) => return server_error(e),
+    };
+    crate::push::notify(state, cal, seq);
 
     let code = if existing.is_some() {
         StatusCode::NO_CONTENT
@@ -275,10 +305,69 @@ fn delete(state: &AppState, resource: &Resource, headers: &HeaderMap) -> Respons
         }
     }
     match state.store.delete_object(cal, name) {
-        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        Ok(true) => {
+            if let Ok(seq) = state.store.collection_sync_token(cal) {
+                crate::push::notify(state, cal, seq);
+            }
+            StatusCode::NO_CONTENT.into_response()
+        }
         Ok(false) => not_found(),
         Err(e) => server_error(e),
     }
+}
+
+/// WebDAV-Push `push-register`: store a Web Push subscription for a calendar
+/// and return its registration URL (Location) and expiry.
+fn push_register(
+    state: &AppState,
+    principal: &crate::store::Principal,
+    resource: &Resource,
+    body: &Bytes,
+) -> Response {
+    let Resource::Calendar { cal, .. } = resource else {
+        return (StatusCode::FORBIDDEN, "subscribe on a calendar\n").into_response();
+    };
+    let reg = xml::parse_push_register(body);
+    if reg.push_resource.is_empty() || reg.p256dh.is_empty() || reg.auth_secret.is_empty() {
+        return push_precondition("invalid-subscription");
+    }
+
+    let id = util::new_id();
+    let effective = match state.store.upsert_subscription(
+        &id,
+        cal,
+        &principal.id,
+        &reg.push_resource,
+        &reg.p256dh,
+        &reg.auth_secret,
+        crate::push::EXPIRY_MODIFIER,
+    ) {
+        Ok(e) => e,
+        Err(e) => return server_error(e),
+    };
+
+    let location = format!("/dav/push/{effective}");
+    let expires = httpdate::fmt_http_date(
+        std::time::SystemTime::now() + std::time::Duration::from_secs(30 * 24 * 60 * 60),
+    );
+    (
+        StatusCode::NO_CONTENT,
+        [(header::LOCATION, location), (header::EXPIRES, expires)],
+    )
+        .into_response()
+}
+
+/// A 403 with a WebDAV-Push precondition error element.
+fn push_precondition(code: &str) -> Response {
+    let body = format!(
+        "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<d:error xmlns:d=\"DAV:\" xmlns:P=\"https://bitfire.at/webdav-push\"><P:{code}/></d:error>"
+    );
+    (
+        StatusCode::FORBIDDEN,
+        [(header::CONTENT_TYPE, "application/xml; charset=utf-8")],
+        body,
+    )
+        .into_response()
 }
 
 fn mkcalendar(state: &AppState, resource: &Resource, body: &Bytes) -> Response {

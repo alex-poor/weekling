@@ -7,7 +7,9 @@ Linux-only, written in Rust, built for homes, families, and small businesses.
 > with mainstream clients: service discovery, PROPFIND, PUT/GET/DELETE with ETags,
 > MKCALENDAR/PROPPATCH, and REPORTs (calendar-query with time-range, calendar-multiget,
 > sync-collection). Auth is argon2id app passwords over HTTP Basic. The management UI
-> is still a placeholder (M2). See [`DESIGN.md`](DESIGN.md) for the full design and roadmap.
+> is still a placeholder (M2). Since then: calendar sharing + tasks + free-busy (M3),
+> and WebDAV-Push advertisement + subscriptions (M4; encrypted delivery in progress).
+> See [`DESIGN.md`](DESIGN.md) for the full design and roadmap.
 
 ## Set up a calendar (admin CLI)
 

@@ -13,6 +13,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 const MIGRATIONS: &[(i64, &str)] = &[
     (1, include_str!("migrations/0001_init.sql")),
     (2, include_str!("migrations/0002_sharing.sql")),
+    (3, include_str!("migrations/0003_push.sql")),
 ];
 
 // ---- domain types -------------------------------------------------------
@@ -98,6 +99,18 @@ pub struct CredentialInfo {
     pub label: String,
     pub created_at: String,
     pub last_used_at: Option<String>,
+}
+
+/// A stored WebDAV-Push subscription.
+#[derive(Debug, Clone)]
+#[allow(dead_code)] // collection_id/expires_at are read by the send path (M4 part 2)
+pub struct PushSub {
+    pub id: String,
+    pub collection_id: String,
+    pub push_resource: String,
+    pub p256dh: String,
+    pub auth_secret: String,
+    pub expires_at: String,
 }
 
 /// One change for a sync-collection REPORT.
@@ -558,6 +571,89 @@ impl Store {
         Ok(acc.and_then(|a| Access::from_share(&a)))
     }
 
+    // ---- push subscriptions (WebDAV-Push) --------------------------------
+
+    /// Register (or update, keyed by collection+endpoint) a push subscription.
+    /// Returns the registration id.
+    #[allow(clippy::too_many_arguments)]
+    pub fn upsert_subscription(
+        &self,
+        id: &str,
+        collection_id: &str,
+        principal_id: &str,
+        push_resource: &str,
+        p256dh: &str,
+        auth_secret: &str,
+        expires_modifier: &str, // e.g. "+30 days", applied to datetime('now')
+    ) -> Result<String> {
+        let conn = self.conn.lock().expect("poisoned");
+        let effective = conn.query_row(
+            "INSERT INTO push_subscriptions
+                 (id, collection_id, principal_id, push_resource, p256dh, auth_secret, expires_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, datetime('now', ?7))
+             ON CONFLICT (collection_id, push_resource) DO UPDATE SET
+                 p256dh = excluded.p256dh, auth_secret = excluded.auth_secret,
+                 expires_at = datetime('now', ?7), principal_id = excluded.principal_id
+             RETURNING id",
+            params![
+                id,
+                collection_id,
+                principal_id,
+                push_resource,
+                p256dh,
+                auth_secret,
+                expires_modifier
+            ],
+            |r| r.get(0),
+        )?;
+        Ok(effective)
+    }
+
+    /// The principal that owns a subscription, if it exists.
+    pub fn subscription_owner(&self, id: &str) -> Result<Option<String>> {
+        let conn = self.conn.lock().expect("poisoned");
+        let owner = conn
+            .query_row(
+                "SELECT principal_id FROM push_subscriptions WHERE id = ?1",
+                [id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        Ok(owner)
+    }
+
+    pub fn delete_subscription(&self, id: &str, principal_id: &str) -> Result<bool> {
+        let conn = self.conn.lock().expect("poisoned");
+        let n = conn.execute(
+            "DELETE FROM push_subscriptions WHERE id = ?1 AND principal_id = ?2",
+            params![id, principal_id],
+        )?;
+        Ok(n > 0)
+    }
+
+    /// Live (unexpired) subscriptions for a collection.
+    pub fn active_subscriptions(&self, collection_id: &str) -> Result<Vec<PushSub>> {
+        let conn = self.conn.lock().expect("poisoned");
+        let mut stmt = conn.prepare(
+            "SELECT id, collection_id, push_resource, p256dh, auth_secret, expires_at
+             FROM push_subscriptions
+             WHERE collection_id = ?1 AND expires_at > datetime('now')",
+        )?;
+        let rows = stmt
+            .query_map([collection_id], |r| {
+                Ok(PushSub {
+                    id: r.get(0)?,
+                    collection_id: r.get(1)?,
+                    push_resource: r.get(2)?,
+                    p256dh: r.get(3)?,
+                    auth_secret: r.get(4)?,
+                    expires_at: r.get(5)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
     // ---- calendar objects ------------------------------------------------
 
     pub fn get_object(&self, cal_id: &str, uid: &str) -> Result<Option<CalObject>> {
@@ -653,6 +749,17 @@ impl Store {
         )?;
         tx.commit()?;
         Ok(seq)
+    }
+
+    /// Current sync token (version) of a collection.
+    pub fn collection_sync_token(&self, cal_id: &str) -> Result<i64> {
+        let conn = self.conn.lock().expect("poisoned");
+        let t = conn.query_row(
+            "SELECT sync_token FROM collections WHERE id = ?1",
+            [cal_id],
+            |r| r.get(0),
+        )?;
+        Ok(t)
     }
 
     /// Delete an object, recording a tombstone. Returns true if it existed.
