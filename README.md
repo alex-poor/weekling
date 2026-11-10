@@ -62,7 +62,10 @@ Defaults work out of the box. Override via `weekling.toml` (see
 ## Deployment
 
 - **Docker / Compose / NAS:** [`docker-compose.yml`](docker-compose.yml) — one volume
-  (`/var/lib/weekling`), one port (`5232`).
+  (`/var/lib/weekling`), one port (`5232`). The image runs as a **non-root** user
+  (uid 65532) on a **read-only root filesystem**, with all capabilities dropped and
+  `no-new-privileges`. A named Docker volume inherits the right ownership
+  automatically; for a **bind mount**, `chown 65532:65532` the host directory first.
 - **systemd:** [`deploy/weekling.service`](deploy/weekling.service) — hardened unit using
   `DynamicUser` + `StateDirectory`.
 
@@ -77,4 +80,4 @@ cargo deny check   # supply-chain gate
 
 ## License
 
-AGPL-3.0-or-later *(provisional — see DESIGN.md open questions; confirm before release)*.
+AGPL-3.0-or-later. See [`LICENSE`](LICENSE).

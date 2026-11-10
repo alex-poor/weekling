@@ -12,5 +12,15 @@ services:
       - weekling-data:/var/lib/weekling
     restart: unless-stopped
 
+    # Hardening: runs as the image's nonroot user (uid 65532) on a read-only
+    # root filesystem, with no extra capabilities and no privilege escalation.
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
 volumes:
   weekling-data:
