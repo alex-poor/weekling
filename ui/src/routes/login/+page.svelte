@@ -36,10 +36,10 @@
 </script>
 
 <div class="wrap">
+	<span class="chip"><img src="/logo.png?v=2" alt="Weekling mascot lifting a barbell" /></span>
 	<form class="card panel" onsubmit={submit}>
-		<img class="logo" src="/logo.png" alt="Weekling" />
-		<h1>Welcome to Weekling</h1>
-		<p class="muted sub">Sign in to manage your calendars.</p>
+		<h1>weekling<span class="dot">.</span></h1>
+		<p class="muted sub">Your calendars, lifting more than they signed up for.</p>
 
 		<div class="field">
 			<label for="u">Username</label>
@@ -73,26 +73,44 @@
 <style>
 	.wrap {
 		min-height: 100vh;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		padding: 24px;
+	}
+	.chip {
+		width: 108px;
+		height: 108px;
 		display: grid;
 		place-items: center;
-		padding: 24px;
+		background: var(--yellow);
+		border: 5px solid #fff;
+		border-radius: 26px;
+		box-shadow: var(--shadow);
+		padding: 10px;
+		transform: rotate(-5deg);
+		margin-bottom: -26px;
+		position: relative;
+		z-index: 1;
+	}
+	.chip img {
+		width: 100%;
+		height: 100%;
+		object-fit: contain;
 	}
 	.panel {
 		width: 100%;
 		max-width: 380px;
-		padding: 32px;
+		padding: 40px 32px 30px;
 		text-align: center;
 	}
-	.logo {
-		height: 84px;
-		width: auto;
-		margin-bottom: 10px;
-	}
 	h1 {
-		font-size: 21px;
+		font-size: 40px;
+		line-height: 1;
 	}
 	.sub {
-		margin: 4px 0 22px;
+		margin: 8px 0 22px;
 	}
 	.field {
 		text-align: left;

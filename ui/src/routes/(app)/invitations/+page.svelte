@@ -42,7 +42,7 @@
 </script>
 
 <header class="head">
-	<h1>Invitations</h1>
+	<h1>Invitations<span class="dot">.</span></h1>
 	<p class="muted">Scheduling messages from other people on this server.</p>
 </header>
 
@@ -83,7 +83,7 @@
 		margin-bottom: 24px;
 	}
 	.head h1 {
-		font-size: 24px;
+		font-size: clamp(34px, 6vw, 52px);
 	}
 	.list {
 		display: flex;

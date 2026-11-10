@@ -1,35 +1,42 @@
-:root {
-	color-scheme: light dark;
-	--bg: #fbfbfd;
-	--surface: #ffffff;
-	--surface-2: #f3f4f8;
-	--fg: #17181c;
-	--muted: #6b7280;
-	--line: #e7e8ee;
-	--accent: #5b8def;
-	--accent-fg: #ffffff;
-	--danger: #e0544b;
-	--ok: #2fa968;
-	--radius: 14px;
-	--radius-sm: 9px;
-	--shadow: 0 1px 2px rgba(16, 18, 27, 0.06), 0 10px 28px rgba(16, 18, 27, 0.07);
-	--font: system-ui, -apple-system, 'Segoe UI', Roboto, Inter, sans-serif;
-}
+/* Weekling UI — "sticker sheet": pure white ground, saturated primaries, a lemon
+   top bar, die-cut stickers (thick white border, soft shadow, slight tilt), and
+   calendars as big colour slabs. Gabarito for everything; Spline Sans Mono for
+   paths. Deliberately a single bright theme. */
 
-@media (prefers-color-scheme: dark) {
-	:root {
-		--bg: #0e0f13;
-		--surface: #16181f;
-		--surface-2: #1d2029;
-		--fg: #e9eaef;
-		--muted: #9aa0ab;
-		--line: #262932;
-		--accent: #7aa2f7;
-		--accent-fg: #0e0f13;
-		--danger: #f0776d;
-		--ok: #4ad295;
-		--shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 28px rgba(0, 0, 0, 0.35);
-	}
+:root {
+	color-scheme: light;
+	--paper: #ffffff;
+	--bg: #f0f0ee;
+	--ink: #111111;
+	--ink-soft: #6c6c6c;
+	--line: #ececea;
+
+	--yellow: #f7d64b;
+	--blue: #3b5bff;
+	--red: #f74e3c;
+	--green: #1fa857;
+
+	--accent: var(--blue);
+	--accent-ink: #ffffff;
+	--danger: var(--red);
+	--ok: var(--green);
+
+	--radius: 22px;
+	--radius-sm: 999px; /* pills */
+	--shadow: 0 10px 26px rgba(17, 17, 17, 0.12);
+	--shadow-sm: 0 4px 12px rgba(17, 17, 17, 0.14);
+
+	--font-display: 'Gabarito', system-ui, -apple-system, sans-serif;
+	--font-body: 'Gabarito', system-ui, -apple-system, sans-serif;
+	--font-mono: 'Spline Sans Mono', ui-monospace, 'SF Mono', monospace;
+
+	/* aliases for component styles written against older token names */
+	--fg: var(--ink);
+	--muted: var(--ink-soft);
+	--surface: var(--paper);
+	--surface-2: #f6f6f4;
+	--accent-fg: var(--accent-ink);
+	--font: var(--font-body);
 }
 
 * {
@@ -43,74 +50,102 @@ body {
 }
 body {
 	background: var(--bg);
-	color: var(--fg);
-	font-family: var(--font);
+	color: var(--ink);
+	font-family: var(--font-body);
 	font-size: 15px;
+	font-weight: 500;
 	line-height: 1.5;
 	-webkit-font-smoothing: antialiased;
 }
 a {
-	color: var(--accent);
-	text-decoration: none;
+	color: var(--ink);
+	text-decoration: underline;
+	text-decoration-thickness: 2px;
+	text-underline-offset: 2px;
 }
 h1,
 h2,
 h3 {
-	letter-spacing: -0.01em;
+	font-family: var(--font-display);
+	font-weight: 900;
+	letter-spacing: -0.02em;
+	line-height: 1;
 	margin: 0;
+	text-wrap: balance;
+}
+.muted {
+	color: var(--ink-soft);
+}
+.small {
+	font-size: 12.5px;
+}
+code,
+.mono {
+	font-family: var(--font-mono);
 }
 
-/* Buttons */
+/* Page title with a coloured full-stop, e.g. <h1>Calendars<span class="dot">.</span></h1> */
+.dot {
+	color: var(--blue);
+}
+
+/* Buttons — pill stickers that lift on hover */
 .btn {
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
 	gap: 8px;
-	height: 38px;
-	padding: 0 16px;
-	border-radius: var(--radius-sm);
-	border: 1px solid var(--line);
-	background: var(--surface);
-	color: var(--fg);
-	font: inherit;
-	font-weight: 550;
+	height: 42px;
+	padding: 0 20px;
+	border: none;
+	border-radius: 999px;
+	background: var(--paper);
+	color: var(--ink);
+	font-family: var(--font-display);
+	font-size: 15px;
+	font-weight: 700;
 	cursor: pointer;
+	box-shadow: var(--shadow-sm);
 	transition:
-		transform 0.04s ease,
-		background 0.15s ease,
-		border-color 0.15s ease;
+		transform 0.07s ease,
+		box-shadow 0.14s ease,
+		filter 0.14s ease;
 	white-space: nowrap;
 }
 .btn:hover {
-	background: var(--surface-2);
+	transform: translateY(-1.5px);
+	box-shadow: var(--shadow);
 }
 .btn:active {
-	transform: translateY(1px);
+	transform: translateY(0);
+	box-shadow: var(--shadow-sm);
 }
 .btn.primary {
-	background: var(--accent);
-	border-color: var(--accent);
-	color: var(--accent-fg);
-}
-.btn.primary:hover {
-	filter: brightness(1.05);
+	background: var(--blue);
+	color: #fff;
 }
 .btn.danger {
-	color: var(--danger);
-	border-color: color-mix(in srgb, var(--danger) 40%, var(--line));
+	color: var(--red);
 }
 .btn.ghost {
-	border-color: transparent;
 	background: transparent;
+	box-shadow: none;
+}
+.btn.ghost:hover {
+	background: rgba(17, 17, 17, 0.06);
+	transform: none;
+	box-shadow: none;
 }
 .btn.sm {
-	height: 31px;
-	padding: 0 11px;
-	font-size: 13px;
+	height: 34px;
+	padding: 0 14px;
+	font-size: 13.5px;
 }
 .btn:disabled {
-	opacity: 0.55;
+	opacity: 0.5;
 	cursor: not-allowed;
+	transform: none;
+	box-shadow: var(--shadow-sm);
 }
 
 /* Inputs */
@@ -120,38 +155,56 @@ h3 {
 }
 .field label {
 	display: block;
-	font-size: 13px;
-	color: var(--muted);
+	font-family: var(--font-display);
+	font-size: 14px;
+	font-weight: 700;
+	color: var(--ink);
 	margin-bottom: 6px;
-	font-weight: 550;
 }
 .input {
 	width: 100%;
-	height: 40px;
-	padding: 0 12px;
-	border-radius: var(--radius-sm);
-	border: 1px solid var(--line);
-	background: var(--surface);
-	color: var(--fg);
+	height: 44px;
+	padding: 0 14px;
+	border: 2px solid var(--line);
+	border-radius: 14px;
+	background: var(--paper);
+	color: var(--ink);
 	font: inherit;
+	font-weight: 600;
 }
 .input:focus {
 	outline: none;
-	border-color: var(--accent);
-	box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+	border-color: var(--blue);
+	box-shadow: 0 0 0 4px color-mix(in srgb, var(--blue) 18%, transparent);
+}
+select.input {
+	cursor: pointer;
 }
 
-/* Cards */
+/* Cards — white, rounded, soft-shadowed */
 .card {
-	background: var(--surface);
-	border: 1px solid var(--line);
+	background: var(--paper);
 	border-radius: var(--radius);
 	box-shadow: var(--shadow);
 }
 
-.muted {
-	color: var(--muted);
+/* Die-cut sticker (badges, the logo chip) */
+.sticker {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	border: 3px solid #fff;
+	border-radius: 10px;
+	box-shadow: var(--shadow-sm);
+	padding: 3px 9px;
+	font-family: var(--font-display);
+	font-weight: 700;
+	font-size: 11px;
+	letter-spacing: 0.02em;
+	color: var(--ink);
+	transform: rotate(-4deg);
 }
+
 .row {
 	display: flex;
 	align-items: center;
@@ -164,17 +217,18 @@ h3 {
 	gap: 12px;
 }
 
-/* Toast */
+/* Toast — black pill */
 .toast {
 	position: fixed;
-	bottom: 20px;
+	bottom: 24px;
 	left: 50%;
 	transform: translateX(-50%);
-	background: var(--fg);
-	color: var(--bg);
-	padding: 10px 16px;
-	border-radius: 10px;
+	background: var(--ink);
+	color: #fff;
+	padding: 11px 20px;
+	border-radius: 999px;
 	box-shadow: var(--shadow);
 	z-index: 50;
-	font-weight: 550;
+	font-family: var(--font-display);
+	font-weight: 700;
 }

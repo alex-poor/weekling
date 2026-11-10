@@ -2,7 +2,6 @@
 	import { onMount } from 'svelte';
 	import { api } from '#lib/api.js';
 	import { showToast } from '#lib/toast.svelte.js';
-	import Icon from '#lib/components/Icon.svelte';
 	import Modal from '#lib/components/Modal.svelte';
 
 	const SWATCHES = [
@@ -142,38 +141,51 @@
 		navigator.clipboard?.writeText(full);
 		showToast('CalDAV URL copied');
 	}
+
+	// Black or white text for a given slab colour (hex, optionally 8-digit).
+	function textOn(hex) {
+		const h = (hex ?? '#3b5bff').replace('#', '').slice(0, 6);
+		const r = parseInt(h.slice(0, 2), 16) || 0;
+		const g = parseInt(h.slice(2, 4), 16) || 0;
+		const b = parseInt(h.slice(4, 6), 16) || 0;
+		const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+		return lum > 0.62 ? '#111' : '#fff';
+	}
+	const BADGE = { VEVENT: 'var(--yellow)', VTODO: 'var(--green)' };
 </script>
 
-<header class="spread head">
+<header class="head">
 	<div>
-		<h1>Calendars</h1>
+		<h1>Calendars<span class="dot">.</span></h1>
 		<p class="muted">Create and manage the calendars on this server.</p>
 	</div>
-	<button class="btn primary" onclick={openNew}><Icon name="plus" size={16} /> New calendar</button>
+	<button class="btn primary big" onclick={openNew}>+ New calendar</button>
 </header>
 
 {#if loaded && calendars.length === 0}
-	<div class="card empty">
-		<p class="muted">No calendars yet — create your first one.</p>
+	<div class="empty">
+		<img src="/logo.png?v=2" alt="" class="mascot-sm" />
+		<p>No calendars yet — even a weekling starts with one rep.</p>
+		<button class="btn primary" onclick={openNew}>+ New calendar</button>
 	</div>
 {:else}
-	<div class="list">
+	<div class="slabs">
 		{#each calendars as cal (cal.id)}
-			<div class="card item">
-				<span class="dot" style="background:{cal.color ?? 'var(--accent)'}"></span>
-				<div class="meta">
-					<strong>{cal.display_name}</strong>
-					<span class="muted small">{cal.components.join(' · ')} · {cal.url}</span>
+			<div class="slab" style="background:{cal.color ?? 'var(--blue)'}; color:{textOn(cal.color)}">
+				<div class="badges">
+					{#each cal.components as c (c)}
+						<span class="sticker" style="background:{BADGE[c] ?? 'var(--yellow)'}">{c}</span>
+					{/each}
 				</div>
-				<div class="acts">
-					<button class="btn sm ghost" onclick={() => copyUrl(cal)} title="Copy CalDAV URL">
-						<Icon name="copy" size={15} />
-					</button>
-					<button class="btn sm" onclick={() => openShare(cal)}>Share</button>
-					<button class="btn sm" onclick={() => openEdit(cal)}>Edit</button>
-					<button class="btn sm danger" onclick={() => remove(cal)} title="Delete">
-						<Icon name="trash" size={15} />
-					</button>
+				<h2 class="slab-name">{cal.display_name}</h2>
+				<div class="path">
+					<code>{cal.url}</code>
+					<button class="link-btn" onclick={() => copyUrl(cal)}>Copy</button>
+				</div>
+				<div class="slab-acts">
+					<button class="chip solid" onclick={() => openShare(cal)}>Share</button>
+					<button class="chip outline" onclick={() => openEdit(cal)}>Edit</button>
+					<button class="link-btn" onclick={() => remove(cal)}>Delete</button>
 				</div>
 			</div>
 		{/each}
@@ -182,15 +194,14 @@
 
 {#if shared.length > 0}
 	<h2 class="section-title">Shared with you</h2>
-	<div class="list">
+	<div class="slabs">
 		{#each shared as cal (cal.owner + '/' + cal.id)}
-			<div class="card item">
-				<span class="dot" style="background:{cal.color ?? 'var(--accent)'}"></span>
-				<div class="meta">
-					<strong>{cal.display_name}</strong>
-					<span class="muted small">from @{cal.owner} · {cal.url}</span>
+			<div class="slab small" style="background:{cal.color ?? 'var(--blue)'}; color:{textOn(cal.color)}">
+				<div class="badges">
+					<span class="sticker" style="background:#fff">{ACCESS_LABEL[cal.access] ?? cal.access}</span>
 				</div>
-				<span class="badge">{ACCESS_LABEL[cal.access] ?? cal.access}</span>
+				<h2 class="slab-name">{cal.display_name}</h2>
+				<div class="path"><code>from @{cal.owner}</code></div>
 			</div>
 		{/each}
 	</div>
@@ -316,48 +327,131 @@
 		max-width: 160px;
 	}
 	.head {
-		margin-bottom: 24px;
+		margin-bottom: 28px;
+		display: flex;
 		align-items: flex-end;
+		justify-content: space-between;
+		gap: 16px;
+		flex-wrap: wrap;
 	}
 	.head h1 {
-		font-size: 24px;
+		font-size: clamp(42px, 7vw, 66px);
 	}
-	.list {
+	.head p {
+		margin: 8px 0 0;
+	}
+	.btn.big {
+		height: 48px;
+		font-size: 16px;
+		padding: 0 24px;
+	}
+
+	.slabs {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+		gap: 22px;
+	}
+	.slab {
+		position: relative;
+		border-radius: 24px;
+		padding: 24px;
+		box-shadow: var(--shadow);
+		min-height: 186px;
 		display: flex;
 		flex-direction: column;
-		gap: 10px;
 	}
-	.item {
+	.slab.small {
+		min-height: 128px;
+	}
+	.badges {
+		position: absolute;
+		top: -12px;
+		right: 18px;
+		display: flex;
+		gap: 8px;
+	}
+	.badges .sticker:nth-child(2) {
+		transform: rotate(5deg);
+	}
+	.slab-name {
+		font-size: clamp(26px, 4vw, 32px);
+		color: inherit;
+		margin: 2px 0 auto;
+		overflow-wrap: anywhere;
+	}
+	.path {
 		display: flex;
 		align-items: center;
-		gap: 14px;
-		padding: 14px 16px;
-	}
-	.dot {
-		width: 16px;
-		height: 16px;
-		border-radius: 50%;
-		flex: none;
-	}
-	.meta {
-		display: flex;
-		flex-direction: column;
+		gap: 10px;
+		background: rgba(0, 0, 0, 0.15);
+		border-radius: 13px;
+		padding: 10px 13px;
+		margin: 16px 0;
 		min-width: 0;
-		flex: 1;
 	}
-	.meta .small {
-		font-size: 12px;
+	.path code {
+		font-family: var(--font-mono);
+		font-size: 12.5px;
+		color: inherit;
+		opacity: 0.95;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+		flex: 1;
 	}
-	.acts {
+	.slab-acts {
 		display: flex;
-		gap: 6px;
+		align-items: center;
+		gap: 10px;
+	}
+	.chip {
+		height: 36px;
+		padding: 0 17px;
+		border-radius: 999px;
+		font-family: var(--font-display);
+		font-weight: 700;
+		font-size: 14px;
+		cursor: pointer;
+	}
+	.chip.solid {
+		background: #fff;
+		color: #111;
+		border: none;
+		box-shadow: var(--shadow-sm);
+	}
+	.chip.outline {
+		background: transparent;
+		color: inherit;
+		border: 2px solid currentColor;
+	}
+	.link-btn {
+		background: none;
+		border: none;
+		color: inherit;
+		font-family: var(--font-display);
+		font-weight: 700;
+		font-size: 14px;
+		cursor: pointer;
+		text-decoration: underline;
+		text-decoration-thickness: 2px;
+		text-underline-offset: 2px;
+		padding: 4px;
+	}
+	.slab-acts .link-btn {
+		margin-left: auto;
 	}
 	.empty {
-		padding: 36px;
+		padding: 46px 30px;
 		text-align: center;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 16px;
+	}
+	.mascot-sm {
+		width: 118px;
+		height: auto;
+		transform: rotate(-4deg);
 	}
 	.swatches {
 		display: flex;

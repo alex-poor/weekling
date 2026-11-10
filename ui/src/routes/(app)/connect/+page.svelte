@@ -42,7 +42,7 @@
 </script>
 
 <header class="head">
-	<h1>Connect a device</h1>
+	<h1>Connect a device<span class="dot">.</span></h1>
 	<p class="muted">Point any CalDAV app at Weekling. Discovery is automatic from the base URL.</p>
 </header>
 
@@ -91,7 +91,7 @@
 		margin-bottom: 22px;
 	}
 	.head h1 {
-		font-size: 24px;
+		font-size: clamp(34px, 6vw, 52px);
 	}
 	.url-card {
 		display: flex;

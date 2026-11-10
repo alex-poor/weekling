@@ -5,7 +5,6 @@
 	import { session } from '#lib/session.svelte.js';
 	import { api } from '#lib/api.js';
 	import { toast } from '#lib/toast.svelte.js';
-	import Icon from '#lib/components/Icon.svelte';
 
 	let { children } = $props();
 	let ready = $state(false);
@@ -23,11 +22,11 @@
 	});
 
 	const nav = [
-		{ href: '/', label: 'Dashboard', icon: 'grid' },
-		{ href: '/calendars', label: 'Calendars', icon: 'calendar' },
-		{ href: '/invitations', label: 'Invitations', icon: 'check' },
-		{ href: '/account', label: 'App passwords', icon: 'key' },
-		{ href: '/connect', label: 'Connect a device', icon: 'phone' }
+		{ href: '/', label: 'Dashboard' },
+		{ href: '/calendars', label: 'Calendars' },
+		{ href: '/invitations', label: 'Invitations' },
+		{ href: '/account', label: 'App passwords' },
+		{ href: '/connect', label: 'Connect a device' }
 	];
 
 	function active(href) {
@@ -48,32 +47,25 @@
 
 {#if ready}
 	<div class="app">
-		<aside class="sidebar">
-			<div class="brand">
-				<img src="/logo.png" alt="" />
-				<span>Weekling</span>
-			</div>
+		<header class="bar">
+			<a class="brand" href="/">
+				<span class="logo-chip"><img src="/logo.png?v=2" alt="" /></span>
+				<span class="wordmark">weekling</span>
+			</a>
 			<nav>
 				{#each nav as item (item.href)}
-					<a href={item.href} class="nav-item" class:active={active(item.href)}>
-						<Icon name={item.icon} />
-						<span>{item.label}</span>
-					</a>
+					<a href={item.href} class="nav-item" class:active={active(item.href)}>{item.label}</a>
 				{/each}
 			</nav>
-			<div class="foot">
+			<div class="user">
+				<div class="avatar">{(session.user?.display_name ?? '?').slice(0, 1)}</div>
 				<div class="who">
-					<div class="avatar">{(session.user?.display_name ?? '?').slice(0, 1)}</div>
-					<div class="who-text">
-						<strong>{session.user?.display_name}</strong>
-						<span class="muted">@{session.user?.id}</span>
-					</div>
+					<strong>{session.user?.display_name}</strong>
+					<span class="handle">@{session.user?.id}</span>
 				</div>
-				<button class="btn ghost sm" onclick={logout} title="Sign out">
-					<Icon name="logout" size={16} /> Sign out
-				</button>
+				<button class="signout" onclick={logout}>Sign out</button>
 			</div>
-		</aside>
+		</header>
 
 		<main class="content">
 			{@render children()}
@@ -87,116 +79,167 @@
 
 <style>
 	.app {
-		display: grid;
-		grid-template-columns: 248px 1fr;
-		min-height: 100vh;
-	}
-	.sidebar {
-		border-right: 1px solid var(--line);
-		background: var(--surface);
-		padding: 20px 14px;
+		max-width: 1440px;
+		margin: 0 auto;
+		padding: clamp(10px, 2vw, 20px);
 		display: flex;
 		flex-direction: column;
-		gap: 8px;
-		position: sticky;
-		top: 0;
-		height: 100vh;
+		gap: 14px;
+	}
+
+	/* Lemon top bar */
+	.bar {
+		background: var(--yellow);
+		border-radius: var(--radius);
+		padding: 12px 18px;
+		display: flex;
+		align-items: center;
+		gap: 14px 22px;
+		flex-wrap: wrap;
 	}
 	.brand {
 		display: flex;
 		align-items: center;
-		gap: 10px;
-		padding: 4px 8px 14px;
-		font-weight: 650;
-		font-size: 17px;
+		gap: 11px;
+		text-decoration: none;
+		color: var(--ink);
 	}
-	.brand img {
-		height: 34px;
-		width: auto;
+	.logo-chip {
+		width: 64px;
+		height: 64px;
+		flex: none;
+		display: grid;
+		place-items: center;
+		transform: rotate(-5deg);
 	}
+	.logo-chip img {
+		width: 100%;
+		height: 100%;
+		object-fit: contain;
+	}
+	.wordmark {
+		font-family: var(--font-display);
+		font-weight: 800;
+		font-size: 24px;
+		letter-spacing: -0.02em;
+	}
+
 	nav {
 		display: flex;
-		flex-direction: column;
-		gap: 2px;
+		align-items: center;
+		gap: 4px;
+		flex: 1;
+		flex-wrap: wrap;
 	}
 	.nav-item {
-		display: flex;
-		align-items: center;
-		gap: 11px;
-		padding: 9px 11px;
-		border-radius: 10px;
-		color: var(--fg);
-		font-weight: 550;
-		transition: background 0.12s ease;
+		font-family: var(--font-display);
+		font-weight: 700;
+		font-size: 15px;
+		color: var(--ink);
+		text-decoration: none;
+		padding: 8px 15px;
+		border-radius: 999px;
+		white-space: nowrap;
 	}
 	.nav-item:hover {
-		background: var(--surface-2);
+		background: rgba(17, 17, 17, 0.08);
 	}
 	.nav-item.active {
-		background: color-mix(in srgb, var(--accent) 15%, transparent);
-		color: var(--accent);
+		background: var(--ink);
+		color: #fff;
 	}
-	.foot {
-		margin-top: auto;
+
+	.user {
 		display: flex;
-		flex-direction: column;
+		align-items: center;
 		gap: 10px;
-		padding-top: 12px;
-		border-top: 1px solid var(--line);
+	}
+	.avatar {
+		width: 42px;
+		height: 42px;
+		flex: none;
+		border-radius: 50%;
+		background: var(--green);
+		color: #fff;
+		display: grid;
+		place-items: center;
+		font-family: var(--font-display);
+		font-weight: 800;
+		font-size: 17px;
+		box-shadow: 0 0 0 3px #fff;
+		text-transform: uppercase;
 	}
 	.who {
 		display: flex;
-		align-items: center;
-		gap: 10px;
-		padding: 0 4px;
-	}
-	.avatar {
-		width: 34px;
-		height: 34px;
-		border-radius: 50%;
-		background: var(--accent);
-		color: var(--accent-fg);
-		display: grid;
-		place-items: center;
-		font-weight: 650;
-		text-transform: uppercase;
-	}
-	.who-text {
-		display: flex;
 		flex-direction: column;
-		line-height: 1.2;
+		line-height: 1.15;
 		font-size: 13px;
 	}
-	.content {
-		padding: 34px clamp(16px, 4vw, 46px);
-		max-width: 960px;
-		width: 100%;
+	.who strong {
+		font-family: var(--font-display);
+		font-weight: 800;
+	}
+	.handle {
+		color: rgba(17, 17, 17, 0.6);
+	}
+	.signout {
+		background: none;
+		border: none;
+		font-family: var(--font-display);
+		font-weight: 700;
+		font-size: 13.5px;
+		color: var(--ink);
+		cursor: pointer;
+		text-decoration: underline;
+		text-decoration-thickness: 2px;
+		text-underline-offset: 2px;
+		padding: 4px;
 	}
 
-	@media (max-width: 760px) {
-		.app {
-			grid-template-columns: 1fr;
+	.content {
+		background: var(--paper);
+		border-radius: var(--radius);
+		box-shadow: var(--shadow);
+		padding: clamp(22px, 4vw, 46px);
+		min-height: 60vh;
+	}
+
+	/* --- Responsive --- */
+	@media (max-width: 860px) {
+		.bar {
+			gap: 12px;
 		}
-		.sidebar {
-			position: static;
-			height: auto;
-			flex-direction: row;
-			flex-wrap: wrap;
-			align-items: center;
+		.brand {
+			order: 1;
+		}
+		.user {
+			order: 2;
+			margin-left: auto;
 		}
 		nav {
-			flex-direction: row;
-			flex-wrap: wrap;
-			flex: 1;
+			order: 3;
+			flex-basis: 100%;
+			gap: 2px;
+			overflow-x: auto;
+			flex-wrap: nowrap;
+			-webkit-overflow-scrolling: touch;
+			scrollbar-width: none;
+			padding-bottom: 2px;
 		}
-		.nav-item span {
+		nav::-webkit-scrollbar {
 			display: none;
 		}
-		.foot {
-			margin: 0;
-			border: none;
-			flex-direction: row;
-			padding: 0;
+		.nav-item {
+			padding: 7px 13px;
+			font-size: 14px;
+		}
+	}
+	@media (max-width: 520px) {
+		.who {
+			display: none;
+		}
+		.wordmark {
+			font-size: 21px;
 		}
 	}
 </style>

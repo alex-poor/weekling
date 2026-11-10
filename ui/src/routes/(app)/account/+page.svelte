@@ -60,7 +60,7 @@
 
 <header class="spread head">
 	<div>
-		<h1>App passwords</h1>
+		<h1>App passwords<span class="dot">.</span></h1>
 		<p class="muted">
 			One per device or app. CalDAV clients sign in with your username and an app password —
 			never your account password.
@@ -128,7 +128,7 @@
 		gap: 20px;
 	}
 	.head h1 {
-		font-size: 24px;
+		font-size: clamp(34px, 6vw, 52px);
 	}
 	.head p {
 		max-width: 52ch;
