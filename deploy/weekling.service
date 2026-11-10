@@ -1,6 +1,6 @@
 [Unit]
 Description=Weekling calendar server
-Documentation=https://github.com/robot5x/weekling
+Documentation=https://github.com/alex-poor/weekling
 After=network-online.target
 Wants=network-online.target
 

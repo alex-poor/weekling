@@ -3,7 +3,7 @@
 > A small, lightning-fast, self-hosted calendar server with a beautiful management UI.
 > Linux-only. Written in Rust. Built for homes, families, and small businesses.
 
-**Status:** Draft v0.1 · **Date:** 2026-11-10 · **Owner:** @robot5x
+**Status:** Draft v0.1 · **Date:** 2026-11-10 · **Owner:** @alex-poor
 
 ---
 

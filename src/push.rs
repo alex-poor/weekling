@@ -24,7 +24,7 @@ use crate::store::PushSub;
 /// Default subscription lifetime (the draft asks for at least 3 days).
 pub const EXPIRY_MODIFIER: &str = "+30 days";
 /// VAPID `sub` claim — contact info for this application server.
-const VAPID_SUB: &str = "https://github.com/robot5x/weekling";
+const VAPID_SUB: &str = "https://github.com/alex-poor/weekling";
 
 /// The server's VAPID identity, loaded once at startup.
 pub struct Push {
