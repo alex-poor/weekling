@@ -13,10 +13,15 @@ Linux-only, written in Rust, built for homes, families, and small businesses.
 
 ```fish
 weekling user add alice --display "Alice"
+echo "a-strong-passphrase" | weekling user passwd alice   # account password (UI login)
 weekling token add alice              # prints an app password — copy it once
 weekling calendar add alice "Home" --id home --color "#5b8defff"
 weekling calendar ls alice
 ```
+
+The account password logs in to the management API at `/api` (cookie session +
+CSRF); CalDAV clients use the app password. The admin UI that consumes `/api`
+lands in M2.
 
 Then point a CalDAV client (Apple Calendar, Thunderbird, DAVx⁵, GNOME Calendar) at the
 server URL `http://<host>:5232/` (it auto-discovers via `/.well-known/caldav`), with the

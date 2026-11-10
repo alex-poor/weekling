@@ -12,6 +12,7 @@ weekling — self-hosted calendar server
 USAGE:
     weekling [serve]                         Run the server (default)
     weekling user add <name> [--display D] [--admin]
+    weekling user passwd <name>              Set the account password (reads stdin)
     weekling token add <user> [--label L]    Create an app password (prints it once)
     weekling calendar add <user> <title> [--id ID] [--color #HEX]
                                              [--components VEVENT|VTODO|VEVENT,VTODO]
@@ -54,7 +55,24 @@ fn user_cmd(store: &Store, args: &[String]) -> Result<()> {
             );
             Ok(())
         }
-        _ => bail!("usage: weekling user add <name> [--display D] [--admin]"),
+        Some("passwd") => {
+            let user = positional(&args[1..], 0).ok_or_else(|| err("user passwd <name>"))?;
+            if store.get_principal(&user)?.is_none() {
+                bail!("no such user '{user}'");
+            }
+            eprint!("New password for {user}: ");
+            let mut pw = String::new();
+            std::io::stdin().read_line(&mut pw)?;
+            let pw = pw.trim_end_matches(['\n', '\r']);
+            if pw.chars().count() < 8 {
+                bail!("password too short (minimum 8 characters)");
+            }
+            let hash = auth::hash_secret(pw)?;
+            store.set_password(&util::new_id(), &user, &hash)?;
+            println!("password set for '{user}'");
+            Ok(())
+        }
+        _ => bail!("usage: weekling user add|passwd …"),
     }
 }
 

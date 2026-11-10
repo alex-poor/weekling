@@ -3,6 +3,7 @@
 //! M0 skeleton: config + SQLite store (with migrations) + axum server
 //! exposing `/healthz` and an embedded UI shell. See DESIGN.md.
 
+mod api;
 mod auth;
 mod cli;
 mod config;

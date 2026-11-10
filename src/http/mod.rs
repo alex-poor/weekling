@@ -29,6 +29,7 @@ pub fn router(state: AppState) -> Router {
         .route("/healthz", get(health::healthz))
         // RFC 6764 service discovery → the CalDAV context path.
         .route("/.well-known/caldav", any(wellknown))
+        .merge(crate::api::router(state.clone()))
         .merge(crate::dav::router(state.clone()))
         // Everything else falls through to the embedded UI (SPA shell).
         .fallback(crate::web::static_handler)

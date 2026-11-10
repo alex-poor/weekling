@@ -10,17 +10,22 @@ CREATE TABLE principals (
     created_at   TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- Authentication secrets. M1 ships app-specific passwords (argon2id); password /
--- webauthn / oidc rows land in later milestones under new `kind` values.
+-- Authentication secrets. `app_password` (CalDAV Basic) and `password` (the
+-- account password for the management UI) are argon2id; webauthn / oidc rows
+-- land in later milestones under new `kind` values. A principal has at most one
+-- `password` row (enforced by a partial unique index).
 CREATE TABLE credentials (
     id           TEXT PRIMARY KEY,
     principal_id TEXT NOT NULL REFERENCES principals(id) ON DELETE CASCADE,
-    kind         TEXT NOT NULL CHECK (kind IN ('app_password')),
+    kind         TEXT NOT NULL CHECK (kind IN ('app_password', 'password')),
     label        TEXT NOT NULL,
     secret_hash  TEXT NOT NULL,
     created_at   TEXT NOT NULL DEFAULT (datetime('now')),
     last_used_at TEXT
 );
+
+CREATE UNIQUE INDEX idx_credentials_one_password
+    ON credentials (principal_id) WHERE kind = 'password';
 
 CREATE INDEX idx_credentials_principal ON credentials (principal_id);
 
@@ -67,3 +72,15 @@ CREATE TABLE deletions (
 );
 
 CREATE INDEX idx_deletions_change ON deletions (collection_id, change_seq);
+
+-- Browser sessions for the management UI (cookie value = session id). CalDAV is
+-- stateless and does not use these.
+CREATE TABLE sessions (
+    id           TEXT PRIMARY KEY,                -- opaque cookie token
+    principal_id TEXT NOT NULL REFERENCES principals(id) ON DELETE CASCADE,
+    csrf         TEXT NOT NULL,
+    created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    expires_at   TEXT NOT NULL
+);
+
+CREATE INDEX idx_sessions_principal ON sessions (principal_id);

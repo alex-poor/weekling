@@ -60,6 +60,15 @@ pub struct NewObject<'a> {
     pub has_rrule: bool,
 }
 
+/// Metadata about an app password (never the secret itself).
+#[derive(Debug, Clone)]
+pub struct CredentialInfo {
+    pub id: String,
+    pub label: String,
+    pub created_at: String,
+    pub last_used_at: Option<String>,
+}
+
 /// One change for a sync-collection REPORT.
 pub struct SyncChange {
     pub uid: String,
@@ -194,6 +203,106 @@ impl Store {
         Ok(())
     }
 
+    pub fn list_app_passwords(&self, principal_id: &str) -> Result<Vec<CredentialInfo>> {
+        let conn = self.conn.lock().expect("poisoned");
+        let mut stmt = conn.prepare(
+            "SELECT id, label, created_at, last_used_at FROM credentials
+             WHERE principal_id = ?1 AND kind = 'app_password' ORDER BY created_at",
+        )?;
+        let rows = stmt
+            .query_map([principal_id], |r| {
+                Ok(CredentialInfo {
+                    id: r.get(0)?,
+                    label: r.get(1)?,
+                    created_at: r.get(2)?,
+                    last_used_at: r.get(3)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    /// Revoke an app password owned by `principal_id`. Returns true if removed.
+    pub fn delete_app_password(&self, principal_id: &str, id: &str) -> Result<bool> {
+        let conn = self.conn.lock().expect("poisoned");
+        let n = conn.execute(
+            "DELETE FROM credentials
+             WHERE id = ?1 AND principal_id = ?2 AND kind = 'app_password'",
+            params![id, principal_id],
+        )?;
+        Ok(n > 0)
+    }
+
+    // ---- account password (management UI) --------------------------------
+
+    /// Set (or replace) the single account password for a principal.
+    pub fn set_password(&self, id: &str, principal_id: &str, hash: &str) -> Result<()> {
+        let mut conn = self.conn.lock().expect("poisoned");
+        let tx = conn.transaction()?;
+        tx.execute(
+            "DELETE FROM credentials WHERE principal_id = ?1 AND kind = 'password'",
+            [principal_id],
+        )?;
+        tx.execute(
+            "INSERT INTO credentials (id, principal_id, kind, label, secret_hash)
+             VALUES (?1, ?2, 'password', 'account password', ?3)",
+            params![id, principal_id, hash],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn password_hash(&self, principal_id: &str) -> Result<Option<String>> {
+        let conn = self.conn.lock().expect("poisoned");
+        let h = conn
+            .query_row(
+                "SELECT secret_hash FROM credentials
+                 WHERE principal_id = ?1 AND kind = 'password'",
+                [principal_id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        Ok(h)
+    }
+
+    // ---- sessions (management UI) ----------------------------------------
+
+    pub fn create_session(
+        &self,
+        id: &str,
+        principal_id: &str,
+        csrf: &str,
+        ttl_hours: i64,
+    ) -> Result<()> {
+        let conn = self.conn.lock().expect("poisoned");
+        conn.execute(
+            "INSERT INTO sessions (id, principal_id, csrf, expires_at)
+             VALUES (?1, ?2, ?3, datetime('now', ?4))",
+            params![id, principal_id, csrf, format!("+{ttl_hours} hours")],
+        )?;
+        Ok(())
+    }
+
+    /// Resolve a live (unexpired) session to (principal_id, csrf).
+    pub fn get_session(&self, id: &str) -> Result<Option<(String, String)>> {
+        let conn = self.conn.lock().expect("poisoned");
+        let row = conn
+            .query_row(
+                "SELECT principal_id, csrf FROM sessions
+                 WHERE id = ?1 AND expires_at > datetime('now')",
+                [id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?;
+        Ok(row)
+    }
+
+    pub fn delete_session(&self, id: &str) -> Result<()> {
+        let conn = self.conn.lock().expect("poisoned");
+        conn.execute("DELETE FROM sessions WHERE id = ?1", [id])?;
+        Ok(())
+    }
+
     // ---- calendars -------------------------------------------------------
 
     pub fn create_calendar(
@@ -250,9 +359,19 @@ impl Store {
         description: Option<&str>,
     ) -> Result<bool> {
         let conn = self.conn.lock().expect("poisoned");
-        let mut affected = 0;
+        let exists: bool = conn
+            .query_row(
+                "SELECT 1 FROM collections WHERE owner_id = ?1 AND id = ?2",
+                params![owner_id, id],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some();
+        if !exists {
+            return Ok(false);
+        }
         if let Some(v) = display_name {
-            affected += conn.execute(
+            conn.execute(
                 "UPDATE collections SET display_name = ?1 WHERE owner_id = ?2 AND id = ?3",
                 params![v, owner_id, id],
             )?;
@@ -269,7 +388,17 @@ impl Store {
                 params![v, owner_id, id],
             )?;
         }
-        Ok(affected > 0)
+        Ok(true)
+    }
+
+    /// Delete a calendar (and, via cascade, its objects and tombstones).
+    pub fn delete_calendar(&self, owner_id: &str, id: &str) -> Result<bool> {
+        let conn = self.conn.lock().expect("poisoned");
+        let n = conn.execute(
+            "DELETE FROM collections WHERE owner_id = ?1 AND id = ?2",
+            params![owner_id, id],
+        )?;
+        Ok(n > 0)
     }
 
     // ---- calendar objects ------------------------------------------------

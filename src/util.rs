@@ -39,6 +39,11 @@ pub fn new_token() -> String {
     out
 }
 
+/// A 256-bit random secret as 64 hex chars (session ids, CSRF tokens).
+pub fn new_secret() -> String {
+    to_hex(&random_bytes::<32>())
+}
+
 /// A content-derived, quoted ETag. Non-cryptographic — it only needs to change
 /// when the stored bytes change.
 pub fn etag_for(bytes: &[u8]) -> String {
