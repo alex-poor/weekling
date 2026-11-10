@@ -25,6 +25,7 @@
 	const nav = [
 		{ href: '/', label: 'Dashboard', icon: 'grid' },
 		{ href: '/calendars', label: 'Calendars', icon: 'calendar' },
+		{ href: '/invitations', label: 'Invitations', icon: 'check' },
 		{ href: '/account', label: 'App passwords', icon: 'key' },
 		{ href: '/connect', label: 'Connect a device', icon: 'phone' }
 	];

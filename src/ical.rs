@@ -16,6 +16,7 @@ pub struct IcalFields {
     pub has_rrule: bool,
     pub organizer: Option<String>, // calendar-user-address, e.g. "mailto:a@x"
     pub attendees: Vec<Attendee>,
+    pub method: Option<String>, // VCALENDAR-level METHOD (REQUEST/REPLY/CANCEL)
 }
 
 /// An ATTENDEE with the participation status we care about for replies.
@@ -104,7 +105,16 @@ pub fn extract(ical: &str) -> IcalFields {
             }
             continue;
         }
-        if !inside || depth > 0 {
+        if !inside {
+            // VCALENDAR-level METHOD (before any component).
+            if let Some((name, value)) = split_prop(&line)
+                && name == "METHOD"
+            {
+                f.method = Some(value.trim().to_ascii_uppercase());
+            }
+            continue;
+        }
+        if depth > 0 {
             continue;
         }
         let Some((name, value)) = split_prop(&line) else {

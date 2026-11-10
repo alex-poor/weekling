@@ -10,8 +10,88 @@ use crate::ical::{self, IcalFields};
 use crate::store::{NewObject, inbox_id};
 use crate::util;
 
+/// Respond to an invitation sitting in the actor's inbox: deliver a REPLY to the
+/// organizer, add the event to the actor's default calendar unless declined, and
+/// clear the inbox item. Returns false if no such inbox item exists.
+pub(crate) fn respond(state: &AppState, actor: &str, inbox_uid: &str, partstat: &str) -> bool {
+    let inbox = inbox_id(actor);
+    let Ok(Some(item)) = state.store.get_object(&inbox, inbox_uid) else {
+        return false;
+    };
+    let f = ical::extract(&item.ical_raw);
+    let Some(me) = f
+        .attendees
+        .iter()
+        .find(|a| resolve(state, &a.value).as_deref() == Some(actor))
+    else {
+        return false;
+    };
+
+    let updated = set_partstat(&item.ical_raw, &me.value, partstat);
+    on_put(state, actor, &updated); // delivers the REPLY to the organizer
+
+    if partstat != "DECLINED"
+        && let Ok(cals) = state.store.list_calendars(actor)
+        && let Some(cal) = cals.first()
+    {
+        let body = without_method(&updated);
+        let g = ical::extract(&body);
+        let uid = f.uid.clone().unwrap_or_else(util::new_id);
+        let etag = util::etag_for(body.as_bytes());
+        let obj = NewObject {
+            collection_id: &cal.id,
+            uid: &uid,
+            etag: &etag,
+            ical_raw: &body,
+            dtstart: g.dtstart.as_deref(),
+            dtend: g.dtend.as_deref(),
+            summary: g.summary.as_deref(),
+            status: g.status.as_deref(),
+            component: g.component.as_deref(),
+            has_rrule: g.has_rrule,
+        };
+        let _ = state.store.put_object(&obj, &util::new_id());
+    }
+
+    let _ = state.store.delete_object(&inbox, inbox_uid);
+    true
+}
+
+/// Rewrite the PARTSTAT of the ATTENDEE line whose value is `my_value`.
+fn set_partstat(ics: &str, my_value: &str, partstat: &str) -> String {
+    let mut out = String::new();
+    for line in ics.split_inclusive('\n') {
+        let t = line.trim_end();
+        if t.to_ascii_uppercase().starts_with("ATTENDEE")
+            && let Some(colon) = t.find(':')
+            && &t[colon + 1..] == my_value
+        {
+            let mut parts = t[..colon].split(';');
+            let name = parts.next().unwrap_or("ATTENDEE");
+            let mut newline = format!("{name};PARTSTAT={partstat}");
+            for p in parts.filter(|p| !p.to_ascii_uppercase().starts_with("PARTSTAT=")) {
+                newline.push(';');
+                newline.push_str(p);
+            }
+            newline.push(':');
+            newline.push_str(my_value);
+            newline.push_str("\r\n");
+            out.push_str(&newline);
+            continue;
+        }
+        out.push_str(line);
+    }
+    out
+}
+
+fn without_method(ics: &str) -> String {
+    ics.split_inclusive('\n')
+        .filter(|l| !l.trim_end().to_ascii_uppercase().starts_with("METHOD:"))
+        .collect()
+}
+
 /// Resolve a calendar-user-address (`mailto:` or a principal URL) to a local id.
-fn resolve(state: &AppState, addr: &str) -> Option<String> {
+pub(crate) fn resolve(state: &AppState, addr: &str) -> Option<String> {
     let a = addr.trim();
     if let Some(email) = a.to_ascii_lowercase().strip_prefix("mailto:")
         && let Ok(Some(id)) = state.store.principal_by_email(email)

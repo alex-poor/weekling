@@ -44,6 +44,8 @@ pub fn router(state: AppState) -> Router<AppState> {
             get(list_shares).post(add_share),
         )
         .route("/api/calendars/{id}/shares/{grantee}", delete(remove_share))
+        .route("/api/inbox", get(list_inbox))
+        .route("/api/inbox/{id}/reply", post(reply_inbox))
         .layer(middleware::from_fn_with_state(state, require_session));
 
     Router::new()
@@ -424,6 +426,67 @@ async fn remove_share(
         Ok(false) => not_found(),
         Err(_) => server_error(),
     }
+}
+
+// ---- scheduling inbox ---------------------------------------------------
+
+async fn list_inbox(
+    State(state): State<AppState>,
+    Extension(SessionUser(p)): Extension<SessionUser>,
+) -> Response {
+    let inbox = crate::store::inbox_id(&p.id);
+    match state.store.list_objects(&inbox, None) {
+        Ok(items) => {
+            let out: Vec<_> = items
+                .iter()
+                .map(|o| {
+                    let f = crate::ical::extract(&o.ical_raw);
+                    let mine = f.attendees.iter().find(|a| {
+                        crate::schedule::resolve(&state, &a.value).as_deref() == Some(&p.id)
+                    });
+                    json!({
+                        "id": o.uid,
+                        "summary": f.summary,
+                        "organizer": f.organizer.as_deref().map(strip_mailto),
+                        "method": f.method,
+                        "dtstart": o.dtstart,
+                        "partstat": mine.and_then(|a| a.partstat.clone()),
+                    })
+                })
+                .collect();
+            Json(out).into_response()
+        }
+        Err(_) => server_error(),
+    }
+}
+
+#[derive(Deserialize)]
+struct Reply {
+    partstat: String,
+}
+
+async fn reply_inbox(
+    State(state): State<AppState>,
+    Extension(SessionUser(p)): Extension<SessionUser>,
+    Path(id): Path<String>,
+    Json(req): Json<Reply>,
+) -> Response {
+    let ps = req.partstat.to_ascii_uppercase();
+    if !matches!(ps.as_str(), "ACCEPTED" | "DECLINED" | "TENTATIVE") {
+        return bad_request("partstat must be ACCEPTED, DECLINED, or TENTATIVE");
+    }
+    if crate::schedule::respond(&state, &p.id, &id, &ps) {
+        StatusCode::NO_CONTENT.into_response()
+    } else {
+        not_found()
+    }
+}
+
+fn strip_mailto(addr: &str) -> String {
+    addr.strip_prefix("mailto:")
+        .or_else(|| addr.strip_prefix("MAILTO:"))
+        .unwrap_or(addr)
+        .to_string()
 }
 
 fn access_str(a: Access) -> &'static str {
