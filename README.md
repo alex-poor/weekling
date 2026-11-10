@@ -10,6 +10,10 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/alex-poor/weekling/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/alex-poor/weekling/actions/workflows/ci.yml/badge.svg" /></a>
+</p>
+
+<p align="center">
   <img alt="license" src="https://img.shields.io/badge/license-AGPL--3.0-f7d64b?style=for-the-badge" />
   <img alt="rust" src="https://img.shields.io/badge/rust-1.88%2B-3b5bff?style=for-the-badge" />
   <img alt="caldav" src="https://img.shields.io/badge/CalDAV-ready-f74e3c?style=for-the-badge" />
